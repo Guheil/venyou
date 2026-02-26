@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import StepIndicator from "@/components/StepIndicator";
 import AppShell from "@/components/AppShell";
 import { useEventsContext } from "@/lib/EventsContext";
+import { useToast } from "@/lib/ToastContext";
 import type { SavedEvent } from "@/lib/types";
 import {
   ArrowRight,
@@ -137,6 +138,7 @@ function SelectInput({ error, children, ...props }: React.SelectHTMLAttributes<H
 export default function CreateEventPage() {
   const router = useRouter();
   const { addEvent } = useEventsContext();
+  const { error: showError } = useToast();
   const [step, setStep] = useState(1);
   const [processing, setProcessing] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof EventForm | string, string>>>({});
@@ -206,16 +208,16 @@ export default function CreateEventPage() {
   const next = () => {
     if (!validate()) return;
     if (step < 5) setStep((s) => s + 1);
-    else handleSubmit();
+    else void handleSubmit();
   };
 
   const back = () => setStep((s) => Math.max(1, s - 1));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setProcessing(true);
     // Build the SavedEvent from form values
     const newEvent: SavedEvent = {
-      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       eventName: form.eventName,
       occasion: form.occasion === "Other" ? form.customOccasion : form.occasion,
@@ -238,9 +240,15 @@ export default function CreateEventPage() {
       status: "Draft",
       venueCount: 0,
     };
-    addEvent(newEvent);
-    // Simulate AI processing, then go to recommendations with the event id
-    setTimeout(() => router.push(`/recommendations?event=${newEvent.id}`), 3000);
+
+    try {
+      await addEvent(newEvent);
+      // Simulate AI processing, then go to recommendations with the event id
+      setTimeout(() => router.push(`/recommendations?event=${newEvent.id}`), 3000);
+    } catch {
+      setProcessing(false);
+      showError("Unable to save event", "Please try again.");
+    }
   };
 
   // ─── Processing Overlay ───────────────────────────────

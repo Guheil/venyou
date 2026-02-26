@@ -7,10 +7,11 @@ import type { SavedEvent } from "@/lib/types";
 interface EventsContextValue {
   events: SavedEvent[];
   hydrated: boolean;
-  addEvent: (e: SavedEvent) => void;
-  updateEvent: (id: string, patch: Partial<SavedEvent>) => void;
-  deleteEvent: (id: string) => void;
+  addEvent: (e: SavedEvent) => Promise<void>;
+  updateEvent: (id: string, patch: Partial<SavedEvent>) => Promise<void>;
+  deleteEvent: (id: string) => Promise<void>;
   getEvent: (id: string) => SavedEvent | undefined;
+  refreshEvents: () => Promise<void>;
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);

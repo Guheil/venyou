@@ -227,7 +227,7 @@ function CostAnalysis({ events }: { events: SavedEvent[] }) {
 // ─── Main Page ────────────────────────────────────────────
 export default function EventsPage() {
   const { events, hydrated, deleteEvent } = useEventsContext();
-  const { success } = useToast();
+  const { success, error } = useToast();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [eventToDelete, setEventToDelete] = useState<SavedEvent | null>(null);
@@ -243,11 +243,15 @@ export default function EventsPage() {
 
   const requestDelete = (event: SavedEvent) => setEventToDelete(event);
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!eventToDelete) return;
-    deleteEvent(eventToDelete.id);
-    success("Event deleted", `"${eventToDelete.eventName}" was removed.`);
-    setEventToDelete(null);
+    try {
+      await deleteEvent(eventToDelete.id);
+      success("Event deleted", `"${eventToDelete.eventName}" was removed.`);
+      setEventToDelete(null);
+    } catch {
+      error("Unable to delete event", "Please try again.");
+    }
   };
 
   return (

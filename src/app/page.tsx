@@ -110,13 +110,17 @@ export default function LandingPage() {
           <div className="hero-gsap-item flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/create-event"
-              className="hero-cta-primary flex items-center gap-2 rounded-full bg-[#2A6558] px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-[#2A6558]/30 transition-all hover:bg-[#215249] hover:shadow-xl"
+              className="hero-cta-primary flex w-full items-center justify-center rounded-full bg-[#2A6558] px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-[#2A6558]/30 transition-all hover:bg-[#215249] hover:shadow-xl sm:w-[250px]"
             >
-              Find My Venue <ArrowRight size={18} />
+              <span className="hero-cta-sheen" aria-hidden />
+              <span className="hero-cta-content">
+                <span>Find My Venue</span>
+                <ArrowRight size={18} className="hero-cta-icon" />
+              </span>
             </Link>
             <Link
               href="/register"
-              className="hero-cta-secondary flex items-center gap-2 rounded-full border border-[#E0DDD5] bg-white px-8 py-3.5 text-base font-semibold text-[#1A1817] transition-all hover:border-[#2A6558] hover:text-[#2A6558]"
+              className="hero-cta-secondary flex w-full items-center justify-center rounded-full border border-[#E0DDD5] bg-white px-8 py-3.5 text-base font-semibold text-[#1A1817] transition-all hover:border-[#2A6558] hover:text-[#2A6558] sm:w-[250px]"
             >
               Create Account
             </Link>

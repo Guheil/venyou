@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { useAuth } from "@/lib/AuthContext";
 
 interface NavbarProps {
   variant?: "transparent" | "solid";
@@ -11,9 +12,11 @@ interface NavbarProps {
 
 export default function Navbar({
   variant = "solid",
-  authenticated = false,
+  authenticated,
 }: NavbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { user } = useAuth();
+  const isAuthenticated = typeof authenticated === "boolean" ? authenticated : Boolean(user);
 
   const base =
     variant === "transparent"
@@ -47,7 +50,7 @@ export default function Navbar({
           >
             Features
           </Link>
-          {authenticated ? (
+          {isAuthenticated ? (
             <>
               <Link
                 href="/dashboard"
@@ -108,7 +111,7 @@ export default function Navbar({
             >
               Features
             </Link>
-            {authenticated ? (
+            {isAuthenticated ? (
               <>
                 <Link
                   href="/dashboard"

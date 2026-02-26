@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import StepIndicator from "@/components/StepIndicator";
 import LegalModal from "@/components/LegalModal";
 import { privacyPolicy, termsOfService } from "@/lib/legalContent";
+import { useToast } from "@/lib/ToastContext";
+import { supabase } from "@/lib/supabase/client";
+import { useAuth } from "@/lib/AuthContext";
 import {
   Eye,
   EyeOff,
@@ -63,7 +67,28 @@ interface RegisterForm {
 const emailRegex = /\S+@\S+\.\S+/;
 type LegalKey = "terms" | "privacy" | null;
 
+type CompletionState = "needs_verification" | "signed_in" | null;
+
+function resolveDisplayName(metadata: Record<string, unknown> | undefined) {
+  const options = [
+    metadata?.full_name,
+    metadata?.name,
+    metadata?.user_name,
+    metadata?.preferred_username,
+  ];
+
+  const value = options.find(
+    (item): item is string => typeof item === "string" && item.trim().length > 0
+  );
+
+  return value?.trim() ?? "";
+}
+
 export default function RegisterPage() {
+  const router = useRouter();
+  const { error: showError, success } = useToast();
+  const { user, needsOnboarding, signOut } = useAuth();
+
   const [step, setStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState<RegisterForm>({
@@ -78,37 +103,78 @@ export default function RegisterPage() {
     newsletter: false,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [mockCode, setMockCode] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
-  const [verificationSent, setVerificationSent] = useState(false);
-  const [verificationMessage, setVerificationMessage] = useState("");
   const [openLegal, setOpenLegal] = useState<LegalKey>(null);
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<"google" | "github" | null>(null);
+  const [terminating, setTerminating] = useState(false);
+  const [done, setDone] = useState<CompletionState>(null);
+
+  const isSocialOnboarding = Boolean(
+    user?.app_metadata?.provider && user.app_metadata.provider !== "email"
+  );
+  const prefilledName = isSocialOnboarding
+    ? resolveDisplayName((user?.user_metadata ?? {}) as Record<string, unknown>)
+    : "";
+  const prefilledEmail = isSocialOnboarding ? user?.email ?? "" : "";
+  const fullNameValue = form.fullName || prefilledName;
+  const emailValue = form.email || prefilledEmail;
+  const hasPendingOnboardingSession = needsOnboarding;
+
+  useEffect(() => {
+    return () => {
+      if (hasPendingOnboardingSession && !done) {
+        void supabase.auth.signOut();
+      }
+    };
+  }, [done, hasPendingOnboardingSession]);
+
+  const handleCancelRegistration = async () => {
+    setTerminating(true);
+    try {
+      await signOut();
+      router.replace("/login");
+    } catch {
+      showError("Unable to cancel sign up", "Please try again.");
+      setTerminating(false);
+    }
+  };
+
+  const handleOAuthSignUp = async (provider: "google" | "github") => {
+    setOauthLoading(provider);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/register`,
+      },
+    });
+
+    if (error) {
+      const providerName = provider === "google" ? "Google" : "GitHub";
+      showError(`${providerName} sign up failed`, "Please try again.");
+      setOauthLoading(null);
+    }
+  };
 
   const validateStep = (targetStep: number) => {
     const e: Record<string, string> = {};
 
     if (targetStep === 1) {
-      if (!form.fullName.trim()) e.fullName = "Full name is required.";
-      if (!form.email) e.email = "Email is required.";
-      else if (!emailRegex.test(form.email)) e.email = "Enter a valid email.";
-      if (!form.password) e.password = "Password is required.";
-      else if (form.password.length < 8) e.password = "Password must be at least 8 characters.";
-      else if (!/[A-Z]/.test(form.password)) e.password = "Password must include an uppercase letter.";
-      else if (!/\d/.test(form.password)) e.password = "Password must include a number.";
+      if (!fullNameValue.trim()) e.fullName = "Full name is required.";
+      if (!emailValue) e.email = "Email is required.";
+      else if (!emailRegex.test(emailValue)) e.email = "Enter a valid email.";
+      if (!isSocialOnboarding) {
+        if (!form.password) e.password = "Password is required.";
+        else if (form.password.length < 8) e.password = "Password must be at least 8 characters.";
+        else if (!/[A-Z]/.test(form.password)) e.password = "Password must include an uppercase letter.";
+        else if (!/\d/.test(form.password)) e.password = "Password must include a number.";
+      }
     }
 
     if (targetStep === 2) {
       if (!form.planningFor) e.planningFor = "Please choose who this account is for.";
       if (!form.eventType) e.eventType = "Select your most common event type.";
       if (!form.eventTimeline) e.eventTimeline = "Pick your event timeline.";
-    }
-
-    if (targetStep === 3) {
-      if (!verificationSent) e.verification = "Send a verification code first.";
-      if (!verificationCode.trim()) e.verificationCode = "Enter the 6-digit code.";
-      else if (verificationCode.trim() !== mockCode) e.verificationCode = "Incorrect code. Use the latest mock code.";
     }
 
     if (targetStep === 4) {
@@ -118,26 +184,6 @@ export default function RegisterPage() {
 
     setErrors(e);
     return Object.keys(e).length === 0;
-  };
-
-  const sendVerificationCode = () => {
-    if (!emailRegex.test(form.email)) {
-      setStep(1);
-      setErrors({ email: "Enter a valid email before verification." });
-      return;
-    }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    setMockCode(code);
-    setVerificationCode("");
-    setVerificationSent(true);
-    setVerificationMessage(`Mock code sent to ${form.email}. Use ${code} to continue.`);
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next.verification;
-      delete next.verificationCode;
-      return next;
-    });
   };
 
   const nextStep = () => {
@@ -150,17 +196,7 @@ export default function RegisterPage() {
     setStep((s) => Math.max(1, s - 1));
   };
 
-  const handleEmailChange = (value: string) => {
-    setForm({ ...form, email: value });
-    if (verificationSent) {
-      setMockCode("");
-      setVerificationCode("");
-      setVerificationSent(false);
-      setVerificationMessage("");
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (step < registerSteps.length) {
@@ -169,33 +205,104 @@ export default function RegisterPage() {
     }
 
     if (!validateStep(step)) return;
+
     setLoading(true);
-    setTimeout(() => {
+    setErrors({});
+
+    const metadataPayload = {
+      full_name: fullNameValue.trim(),
+      planning_for: form.planningFor,
+      event_type: form.eventType,
+      event_timeline: form.eventTimeline,
+      newsletter: form.newsletter,
+      agreed_terms_at: new Date().toISOString(),
+      agreed_privacy_at: new Date().toISOString(),
+      onboarding_complete: true,
+    };
+
+    if (isSocialOnboarding) {
+      const { error } = await supabase.auth.updateUser({
+        data: metadataPayload,
+      });
+
+      if (error) {
+        setErrors({ auth: "Unable to finish registration right now. Please try again." });
+        showError("Registration incomplete", "Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      await supabase.auth.refreshSession();
+
       setLoading(false);
-      setDone(true);
-    }, 1600);
+      success("Account updated", "Registration complete. Welcome to VenYOU.");
+      setDone("signed_in");
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email: emailValue.trim().toLowerCase(),
+      password: form.password,
+      options: {
+        data: metadataPayload,
+      },
+    });
+
+    if (error) {
+      const message = error.message.toLowerCase().includes("already")
+        ? "An account with this email already exists. Try signing in."
+        : "Unable to create account right now. Please try again.";
+
+      setErrors({ auth: message });
+      showError("Sign up failed", message);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+
+    if (data.session) {
+      success("Account created", "Welcome to VenYOU.");
+      setDone("signed_in");
+      return;
+    }
+
+    success("Verify your email", "We sent a confirmation link to your inbox.");
+    setDone("needs_verification");
   };
 
   const stepTitle =
     step === 1
       ? "Account Details"
       : step === 2
-      ? "A Few Quick Questions"
-      : step === 3
-      ? "Verify Your Email"
-      : "Terms and Conditions";
+        ? "A Few Quick Questions"
+        : step === 3
+          ? "Verify Your Email"
+          : "Terms and Conditions";
 
   const stepDescription =
     step === 1
-      ? "Set up your name, email, and password."
+      ? isSocialOnboarding
+        ? "Confirm your name and email from social sign in."
+        : "Set up your name, email, and password."
       : step === 2
-      ? "We use these answers to personalize recommendations."
-      : step === 3
-      ? "Mock verification for now. We will wire real email verification later."
-      : "Review and accept before creating your account.";
+        ? "We use these answers to personalize recommendations."
+        : step === 3
+          ? isSocialOnboarding
+            ? "Social accounts are already verified. Review before completing signup."
+            : "After account creation, we send a secure email verification link."
+          : "Review and accept before creating your account.";
 
   const primaryActionLabel =
-    loading ? "Creating account..." : step === registerSteps.length ? "Create Account" : "Continue";
+    loading
+      ? isSocialOnboarding
+        ? "Finalizing..."
+        : "Creating account..."
+      : step === registerSteps.length
+        ? isSocialOnboarding
+          ? "Complete Registration"
+          : "Create Account"
+        : "Continue";
 
   const activeDocument =
     openLegal === "terms" ? termsOfService : openLegal === "privacy" ? privacyPolicy : null;
@@ -207,31 +314,54 @@ export default function RegisterPage() {
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#EAF2F0]">
             <CheckCircle2 size={40} className="text-[#2A6558]" />
           </div>
-          <h2 className="mb-3 text-3xl font-extrabold text-[#1A1817]">You&apos;re In!</h2>
-          <p className="mb-8 text-[#7C7671]">
-            Welcome to VenYOU, {form.fullName.split(" ")[0]}! Your account is ready.
-          </p>
-          <Link
-            href="/dashboard"
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3 text-sm font-semibold text-white hover:bg-[#215249]"
-          >
-            Go to Dashboard <ArrowRight size={16} />
-          </Link>
+
+          {done === "signed_in" ? (
+            <>
+              <h2 className="mb-3 text-3xl font-extrabold text-[#1A1817]">You are In</h2>
+              <p className="mb-8 text-[#7C7671]">
+                Welcome to VenYOU, {fullNameValue.split(" ")[0] || "there"}. Your account is ready.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.replace("/dashboard")}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3 text-sm font-semibold text-white hover:bg-[#215249]"
+              >
+                Go to Dashboard <ArrowRight size={16} />
+              </button>
+            </>
+          ) : (
+            <>
+              <h2 className="mb-3 text-3xl font-extrabold text-[#1A1817]">Check Your Email</h2>
+              <p className="mb-8 text-[#7C7671]">
+                We sent a verification link to <strong>{emailValue}</strong>. Confirm your email, then sign in.
+              </p>
+              <Link
+                href="/login"
+                className="flex items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3 text-sm font-semibold text-white hover:bg-[#215249]"
+              >
+                Go to Sign In <ArrowRight size={16} />
+              </Link>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-[#F8F6F1]">
-      {/* Left panel */}
-      <div className="relative hidden overflow-hidden bg-[#2A6558] p-14 lg:flex lg:w-1/2 lg:flex-col lg:justify-between">
-        <div className="pointer-events-none absolute -top-20 right-0 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -left-20 bottom-0 h-96 w-96 rounded-full bg-[#1A1817]/20 blur-3xl" />
+    <div className="relative min-h-screen bg-[#F8F6F1]">
+      <div className="pointer-events-none absolute inset-0 hidden lg:block">
+        <div className="absolute inset-y-0 left-0 w-1/2 bg-[#2A6558]" />
+      </div>
+
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1440px]">
+        <div className="relative hidden overflow-hidden bg-[#2A6558] p-14 lg:flex lg:w-1/2 lg:flex-col lg:justify-between">
+
         <Link href="/" className="relative z-10 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-sm font-bold text-[#2A6558]">V</span>
           <span className="text-xl font-bold tracking-tight text-white">VenYOU</span>
         </Link>
+
         <div className="relative z-10">
           <h2 className="mb-4 text-4xl font-extrabold leading-tight text-white">
             Join VenYOU.
@@ -242,12 +372,7 @@ export default function RegisterPage() {
             Complete a short onboarding flow to unlock AI-powered venue discovery built around your event needs.
           </p>
           <div className="flex flex-col gap-3">
-            {[
-              "Step-by-step sign up",
-              "Profile-based recommendations",
-              "Mock email verification ready",
-              "Transparent terms acceptance",
-            ].map((item) => (
+            {["Step-by-step onboarding", "Secure authentication", "Profile-based recommendations", "Transparent terms acceptance"].map((item) => (
               <div key={item} className="flex items-center gap-3">
                 <CheckCircle2 size={16} className="shrink-0 text-white" />
                 <span className="text-sm text-white/80">{item}</span>
@@ -255,14 +380,12 @@ export default function RegisterPage() {
             ))}
           </div>
         </div>
-        <p className="relative z-10 text-xs text-white/40">
-          You can go back between steps anytime before submission.
-        </p>
+
+        <p className="relative z-10 text-xs text-white/40">You can go back between steps anytime before submission.</p>
       </div>
 
-      {/* Right panel */}
-      <div className="flex w-full items-center justify-center px-6 py-12 lg:w-1/2">
-        <div className="w-full max-w-md">
+        <div className="flex w-full items-center justify-center px-6 py-12 lg:w-1/2">
+          <div className="w-full max-w-md">
           <Link href="/" className="mb-10 flex items-center gap-2 lg:hidden">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#2A6558] text-sm font-bold text-white">V</span>
             <span className="text-xl font-bold tracking-tight text-[#1A1817]">
@@ -278,6 +401,65 @@ export default function RegisterPage() {
             </Link>
           </p>
 
+          {!isSocialOnboarding ? (
+            <>
+              <div className="mb-6 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleOAuthSignUp("google")}
+                  disabled={Boolean(oauthLoading)}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-[#E0DDD5] bg-white py-2.5 text-sm font-medium text-[#1A1817] transition hover:border-[#2A6558] disabled:opacity-60"
+                >
+                  {oauthLoading === "google" ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1A1817] border-t-transparent" />
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 48 48">
+                      <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+                      <path fill="#FF3D00" d="m6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"/>
+                      <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+                      <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+                    </svg>
+                  )}
+                  Google
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleOAuthSignUp("github")}
+                  disabled={Boolean(oauthLoading)}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-[#E0DDD5] bg-white py-2.5 text-sm font-medium text-[#1A1817] transition hover:border-[#2A6558] disabled:opacity-60"
+                >
+                  {oauthLoading === "github" ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1A1817] border-t-transparent" />
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#1A1817">
+                      <path d="M12 2C6.477 2 2 6.591 2 12.253c0 4.529 2.865 8.372 6.839 9.728.5.095.682-.22.682-.49 0-.24-.008-.875-.013-1.717-2.782.617-3.369-1.377-3.369-1.377-.455-1.17-1.11-1.48-1.11-1.48-.908-.635.069-.622.069-.622 1.004.072 1.532 1.055 1.532 1.055.892 1.568 2.341 1.115 2.91.853.091-.663.35-1.116.636-1.373-2.22-.258-4.555-1.138-4.555-5.066 0-1.119.389-2.034 1.028-2.75-.103-.259-.446-1.303.098-2.717 0 0 .84-.276 2.75 1.05A9.399 9.399 0 0 1 12 6.872c.85.004 1.705.117 2.504.344 1.909-1.326 2.748-1.05 2.748-1.05.546 1.414.203 2.458.1 2.717.64.716 1.027 1.631 1.027 2.75 0 3.938-2.339 4.804-4.566 5.057.359.318.678.945.678 1.905 0 1.375-.012 2.484-.012 2.822 0 .272.18.59.688.49C19.138 20.621 22 16.779 22 12.253 22 6.591 17.523 2 12 2z" />
+                    </svg>
+                  )}
+                  GitHub
+                </button>
+              </div>
+
+              <p className="mb-6 text-center text-xs text-[#7C7671]">
+                Google/GitHub pre-fills your name and email. You still complete all steps and accept terms.
+              </p>
+            </>
+          ) : (
+            <div className="mb-6 rounded-xl border border-[#C8E0DA] bg-[#EAF2F0] px-3 py-3">
+              <p className="text-center text-xs text-[#215249]">
+                Social sign in connected. Continue the steps below to finish registration.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleCancelRegistration()}
+                disabled={terminating}
+                className="mt-2 w-full rounded-lg border border-[#2A6558]/30 bg-white px-3 py-2 text-xs font-semibold text-[#2A6558] transition hover:bg-[#F8F6F1] disabled:opacity-60"
+              >
+                {terminating ? "Cancelling..." : "Cancel Sign Up"}
+              </button>
+            </div>
+          )}
+
           <div className="mb-8 rounded-2xl border border-[#E0DDD5] bg-white px-5 py-5">
             <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-[#7C7671]">
               Step {step} of {registerSteps.length}
@@ -291,7 +473,6 @@ export default function RegisterPage() {
               <p className="mt-1 text-sm text-[#7C7671]">{stepDescription}</p>
             </div>
 
-            {/* Step 1: account */}
             {step === 1 && (
               <div className="flex flex-col gap-5 page-fade">
                 <div>
@@ -300,7 +481,8 @@ export default function RegisterPage() {
                     <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
                     <input
                       type="text"
-                      value={form.fullName}
+                      autoComplete="name"
+                      value={fullNameValue}
                       onChange={(e) => setForm({ ...form, fullName: e.target.value })}
                       placeholder="Juan dela Cruz"
                       className={`w-full rounded-xl border bg-white py-3 pl-10 pr-4 text-sm text-[#1A1817] outline-none placeholder:text-[#C4BDBA] transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
@@ -317,8 +499,9 @@ export default function RegisterPage() {
                     <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
                     <input
                       type="email"
-                      value={form.email}
-                      onChange={(e) => handleEmailChange(e.target.value)}
+                      autoComplete="email"
+                      value={emailValue}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })}
                       placeholder="you@example.com"
                       className={`w-full rounded-xl border bg-white py-3 pl-10 pr-4 text-sm text-[#1A1817] outline-none placeholder:text-[#C4BDBA] transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
                         errors.email ? "border-[#C0392B]" : "border-[#E0DDD5]"
@@ -328,50 +511,57 @@ export default function RegisterPage() {
                   {errors.email && <p className="mt-1 text-xs text-[#C0392B]">{errors.email}</p>}
                 </div>
 
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[#1A1817]">Password</label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={form.password}
-                      onChange={(e) => setForm({ ...form, password: e.target.value })}
-                      placeholder="Create a strong password"
-                      className={`w-full rounded-xl border bg-white py-3 pl-10 pr-10 text-sm text-[#1A1817] outline-none placeholder:text-[#C4BDBA] transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
-                        errors.password ? "border-[#C0392B]" : "border-[#E0DDD5]"
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#7C7671] hover:text-[#1A1817]"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                  {errors.password && <p className="mt-1 text-xs text-[#C0392B]">{errors.password}</p>}
-
-                  {form.password.length > 0 && (
-                    <div className="mt-2 flex flex-col gap-1">
-                      {requirements.map((req) => (
-                        <div key={req.label} className="flex items-center gap-1.5">
-                          <div
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              req.test(form.password) ? "bg-[#2A6558]" : "bg-[#E0DDD5]"
-                            }`}
-                          />
-                          <span className={`text-xs ${req.test(form.password) ? "text-[#2A6558]" : "text-[#7C7671]"}`}>
-                            {req.label}
-                          </span>
-                        </div>
-                      ))}
+                {!isSocialOnboarding ? (
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-[#1A1817]">Password</label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        value={form.password}
+                        onChange={(e) => setForm({ ...form, password: e.target.value })}
+                        placeholder="Create a strong password"
+                        className={`w-full rounded-xl border bg-white py-3 pl-10 pr-10 text-sm text-[#1A1817] outline-none placeholder:text-[#C4BDBA] transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
+                          errors.password ? "border-[#C0392B]" : "border-[#E0DDD5]"
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#7C7671] hover:text-[#1A1817]"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
                     </div>
-                  )}
-                </div>
+                    {errors.password && <p className="mt-1 text-xs text-[#C0392B]">{errors.password}</p>}
+
+                    {form.password.length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        {requirements.map((req) => (
+                          <div key={req.label} className="flex items-center gap-1.5">
+                            <div
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                req.test(form.password) ? "bg-[#2A6558]" : "bg-[#E0DDD5]"
+                              }`}
+                            />
+                            <span className={`text-xs ${req.test(form.password) ? "text-[#2A6558]" : "text-[#7C7671]"}`}>
+                              {req.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-3 py-2 text-xs text-[#7C7671]">
+                    Password is managed by your social provider for this account.
+                  </p>
+                )}
               </div>
             )}
 
-            {/* Step 2: questions */}
             {step === 2 && (
               <div className="flex flex-col gap-6 page-fade">
                 <div>
@@ -400,7 +590,7 @@ export default function RegisterPage() {
                   <select
                     value={form.eventType}
                     onChange={(e) => setForm({ ...form, eventType: e.target.value })}
-                    className={`w-full rounded-xl border bg-white py-3 px-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
+                    className={`w-full rounded-xl border bg-white px-4 py-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
                       errors.eventType ? "border-[#C0392B]" : "border-[#E0DDD5]"
                     }`}
                   >
@@ -445,53 +635,32 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Step 3: verification */}
             {step === 3 && (
               <div className="flex flex-col gap-5 page-fade">
                 <div className="rounded-xl border border-[#C8E0DA] bg-[#EAF2F0] p-4 text-sm text-[#215249]">
                   <div className="mb-1.5 flex items-center gap-2 font-semibold">
                     <ShieldCheck size={16} />
-                    Email verification (mock)
+                    Email verification
                   </div>
-                  <p>
-                    We will verify <strong>{form.email}</strong>. Click send, then enter the code below.
-                  </p>
+                  {isSocialOnboarding ? (
+                    <p>
+                      Your <strong>{user?.app_metadata?.provider ?? "social"}</strong> account already verified{" "}
+                      <strong>{emailValue || "your email"}</strong>. Continue to terms.
+                    </p>
+                  ) : (
+                    <p>
+                      After creating your account, we will send a secure verification link to <strong>{emailValue || "your email"}</strong>.
+                    </p>
+                  )}
                 </div>
-
-                <button
-                  type="button"
-                  onClick={sendVerificationCode}
-                  className="rounded-xl border border-[#2A6558] bg-white py-2.5 text-sm font-semibold text-[#2A6558] transition hover:bg-[#EAF2F0]"
-                >
-                  {verificationSent ? "Resend Mock Code" : "Send Mock Code"}
-                </button>
-
-                {verificationMessage && (
-                  <p className="rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-3 py-2 text-xs text-[#1A1817]">
-                    {verificationMessage}
-                  </p>
-                )}
-                {errors.verification && <p className="text-xs text-[#C0392B]">{errors.verification}</p>}
-
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-[#1A1817]">Verification Code</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={verificationCode}
-                    onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
-                    placeholder="Enter 6-digit code"
-                    className={`w-full rounded-xl border bg-white py-3 px-4 text-sm tracking-[0.3em] text-[#1A1817] outline-none placeholder:tracking-normal placeholder:text-[#C4BDBA] transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
-                      errors.verificationCode ? "border-[#C0392B]" : "border-[#E0DDD5]"
-                    }`}
-                  />
-                  {errors.verificationCode && <p className="mt-1 text-xs text-[#C0392B]">{errors.verificationCode}</p>}
-                </div>
+                <p className="rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-3 py-2 text-xs text-[#1A1817]">
+                  {isSocialOnboarding
+                    ? "Social sign in pre-fills basic info. You still need to complete all onboarding steps."
+                    : "Verification protects your account and ensures only you can access your event data."}
+                </p>
               </div>
             )}
 
-            {/* Step 4: terms */}
             {step === 4 && (
               <div className="flex flex-col gap-5 page-fade">
                 <div className="rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] p-4 text-sm text-[#7C7671]">
@@ -560,18 +729,22 @@ export default function RegisterPage() {
                     onChange={(e) => setForm({ ...form, newsletter: e.target.checked })}
                     className="mt-0.5 h-4 w-4 rounded border-[#E0DDD5] accent-[#2A6558]"
                   />
-                  <span className="text-sm text-[#7C7671]">
-                    Send me product updates and venue insights (optional).
-                  </span>
+                  <span className="text-sm text-[#7C7671]">Send me product updates and venue insights (optional).</span>
                 </label>
               </div>
             )}
 
-            {/* Footer nav */}
+            {errors.auth && (
+              <p className="mt-5 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-3 py-2 text-xs text-[#C0392B]">
+                {errors.auth}
+              </p>
+            )}
+
             <div className="mt-8 flex items-center justify-between">
               <button
                 type="button"
                 onClick={backStep}
+                disabled={terminating}
                 className={`flex items-center gap-2 rounded-xl border border-[#E0DDD5] px-5 py-2.5 text-sm font-medium text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817] ${
                   step === 1 ? "invisible" : ""
                 }`}
@@ -580,7 +753,7 @@ export default function RegisterPage() {
               </button>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || Boolean(oauthLoading) || terminating}
                 className="flex items-center justify-center gap-2 rounded-xl bg-[#2A6558] px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-[#215249] disabled:opacity-60"
               >
                 {loading ? (
@@ -594,6 +767,7 @@ export default function RegisterPage() {
               </button>
             </div>
           </form>
+          </div>
         </div>
       </div>
 

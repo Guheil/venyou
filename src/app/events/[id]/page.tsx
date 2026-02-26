@@ -67,7 +67,7 @@ export default function EventDetailPage() {
   const router = useRouter();
   const id = typeof params.id === "string" ? params.id : Array.isArray(params.id) ? params.id[0] : "";
   const { getEvent, deleteEvent, updateEvent } = useEventsContext();
-  const { info, success } = useToast();
+  const { info, success, error } = useToast();
 
   const ev = getEvent(id);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -103,21 +103,29 @@ export default function EventDetailPage() {
       ? `₱${ev.budgetMin.toLocaleString()}–₱${ev.budgetMax.toLocaleString()} / head`
       : `₱${t.min.toLocaleString()}–₱${t.max.toLocaleString()} total`;
 
-  const handleDelete = () => {
-    deleteEvent(ev.id);
-    success("Event deleted", `"${ev.eventName}" was removed.`);
-    setDeleteModalOpen(false);
-    router.push("/events");
+  const handleDelete = async () => {
+    try {
+      await deleteEvent(ev.id);
+      success("Event deleted", `"${ev.eventName}" was removed.`);
+      setDeleteModalOpen(false);
+      router.push("/events");
+    } catch {
+      error("Unable to delete event", "Please try again.");
+    }
   };
 
-  const handleStatusChange = (s: EventStatus) => {
+  const handleStatusChange = async (s: EventStatus) => {
     if (s === ev.status) {
       setStatusOpen(false);
       return;
     }
-    updateEvent(ev.id, { status: s });
-    info("Status updated", `${ev.eventName} is now ${s}.`);
-    setStatusOpen(false);
+    try {
+      await updateEvent(ev.id, { status: s });
+      info("Status updated", `${ev.eventName} is now ${s}.`);
+      setStatusOpen(false);
+    } catch {
+      error("Unable to update status", "Please try again.");
+    }
   };
 
   return (

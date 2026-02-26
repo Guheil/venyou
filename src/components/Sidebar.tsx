@@ -1,14 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useEventsContext } from "@/lib/EventsContext";
+import { useAuth } from "@/lib/AuthContext";
+import { useToast } from "@/lib/ToastContext";
 import {
   LayoutDashboard,
   CalendarDays,
   Plus,
   MapPin,
+  UserRound,
+  Settings,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -23,15 +27,33 @@ const navItems = [
   { label: "My Events", href: "/events", icon: CalendarDays },
   { label: "Create Event", href: "/create-event", icon: Plus },
   { label: "Recommendations", href: "/recommendations", icon: MapPin },
+  { label: "Profile", href: "/profile", icon: UserRound },
+  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 export default function Sidebar() {
+  const router = useRouter();
   const pathname = usePathname();
   const { events } = useEventsContext();
+  const { user, signOut } = useAuth();
+  const { error } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const recentEvents = events.slice(0, 3);
+
+  const handleSignOut = async () => {
+    setLoggingOut(true);
+    try {
+      await signOut();
+      router.replace("/login");
+    } catch {
+      error("Unable to sign out", "Please try again.");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   const NavLink = ({
     href,
@@ -127,6 +149,14 @@ export default function Sidebar() {
 
       {/* Bottom: AI pill + logout */}
       <div className={`mt-auto border-t border-[#E0DDD5] px-3 py-4 flex flex-col gap-2`}>
+        {!collapsed && user?.email && (
+          <div className="rounded-xl border border-[#E0DDD5] bg-white px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#C4BDBA]">
+              Signed in as
+            </p>
+            <p className="truncate text-xs font-medium text-[#1A1817]">{user.email}</p>
+          </div>
+        )}
         {!collapsed && (
           <div className="flex items-center gap-2 rounded-xl bg-[#1A1817] px-3 py-2.5">
             <Sparkles size={13} className="text-[#7BC4B8] shrink-0" />
@@ -136,14 +166,20 @@ export default function Sidebar() {
             </div>
           </div>
         )}
-        <Link
-          href="/login"
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={loggingOut}
           className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[#7C7671] transition hover:bg-red-50 hover:text-red-500 ${collapsed ? "justify-center" : ""}`}
           title={collapsed ? "Sign Out" : undefined}
         >
-          <LogOut size={16} className="shrink-0" />
-          {!collapsed && <span>Sign Out</span>}
-        </Link>
+          {loggingOut ? (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#7C7671] border-t-transparent" />
+          ) : (
+            <LogOut size={16} className="shrink-0" />
+          )}
+          {!collapsed && <span>{loggingOut ? "Signing Out..." : "Sign Out"}</span>}
+        </button>
       </div>
     </div>
   );

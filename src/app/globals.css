@@ -245,20 +245,43 @@ select {
 .hero-cta-primary {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
+  border-radius: 9999px;
 }
 
-.hero-cta-primary > * {
+.hero-cta-content {
   position: relative;
   z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  white-space: nowrap;
+  line-height: 1;
 }
 
-.hero-cta-primary::after {
+.hero-cta-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.hero-cta-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: inherit;
+  clip-path: inset(0 round 9999px);
+  pointer-events: none;
+}
+
+.hero-cta-sheen::after {
   content: "";
   position: absolute;
-  top: -220%;
-  left: -120%;
-  width: 70%;
-  height: 420%;
+  top: -160%;
+  left: -60%;
+  width: 44%;
+  height: 380%;
   transform: rotate(24deg);
   background: linear-gradient(
     90deg,
@@ -266,7 +289,6 @@ select {
     rgba(255, 255, 255, 0.42),
     rgba(255, 255, 255, 0)
   );
-  z-index: 1;
   animation: heroCtaSheen 4.4s ease-in-out 1.2s infinite;
 }
 
@@ -281,10 +303,10 @@ select {
 @keyframes heroCtaSheen {
   0%,
   63% {
-    left: -130%;
+    left: -70%;
   }
   100% {
-    left: 145%;
+    left: 130%;
   }
 }
 
@@ -330,7 +352,7 @@ select {
   .hero-item,
   .hero-chip,
   .reveal-section,
-  .hero-cta-primary::after {
+  .hero-cta-sheen::after {
     animation: none !important;
   }
 

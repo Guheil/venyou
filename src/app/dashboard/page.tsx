@@ -76,22 +76,22 @@ export default function DashboardPage() {
             {
               icon: <FileText size={18} className="text-[#2A6558]" />,
               label: "Total Events",
-              value: hydrated ? String(events.length) : "â€”",
+              value: hydrated ? String(events.length) : "-",
             },
             {
               icon: <Users size={18} className="text-[#2A6558]" />,
               label: "Total Guests Planned",
-              value: hydrated ? totalPax.toLocaleString() : "â€”",
+              value: hydrated ? totalPax.toLocaleString() : "-",
             },
             {
               icon: <CheckCircle2 size={18} className="text-[#2A6558]" />,
               label: "Confirmed Events",
-              value: hydrated ? String(confirmedCount) : "â€”",
+              value: hydrated ? String(confirmedCount) : "-",
             },
             {
               icon: <TrendingUp size={18} className="text-[#2A6558]" />,
               label: "Avg. AI Match Score",
-              value: events.length ? `${avgMatchScore}%` : "â€”",
+              value: events.length ? `${avgMatchScore}%` : "-",
             },
           ].map((s) => (
             <div
@@ -268,7 +268,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-white/80 mb-4">
-                Book 3+ months ahead for weddings â€” popular garden venues in BGC
+                Book 3+ months ahead for weddings - popular garden venues in BGC
                 fill up fast on weekends.
               </p>
               <Link

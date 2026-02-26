@@ -9,6 +9,7 @@ import { privacyPolicy, termsOfService } from "@/lib/legalContent";
 import { useToast } from "@/lib/ToastContext";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/AuthContext";
+import { buildAuthRedirectUrl } from "@/lib/authRedirect";
 import {
   Eye,
   EyeOff,
@@ -145,7 +146,7 @@ export default function RegisterPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/register`,
+        redirectTo: buildAuthRedirectUrl("/register"),
       },
     });
 

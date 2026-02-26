@@ -22,6 +22,8 @@ Create `.env` from `.env.example` and set:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+# Optional but recommended for production OAuth redirects
+NEXT_PUBLIC_SITE_URL=https://venyou-five.vercel.app
 ```
 
 ## 3. Create database schema (one-time)
@@ -33,7 +35,9 @@ This creates:
 - indexes for fast per-user queries
 - row-level security (RLS) policies so users only access their own rows
 
-In Supabase Auth settings, set your app URL (for local dev: `http://localhost:3000`).
+In Supabase Auth settings:
+- `Site URL`: `https://venyou-five.vercel.app` (production)
+- `Additional Redirect URLs`: include `http://localhost:3000`, `http://localhost:3000/login`, `http://localhost:3000/register`, `http://localhost:3000/dashboard`, and your production routes if needed.
 
 ## 4. Run dev server
 

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useToast } from "@/lib/ToastContext";
+import { buildAuthRedirectUrl } from "@/lib/authRedirect";
 
 function sanitizeRedirectPath(nextPath: string | null) {
   if (!nextPath) return "/dashboard";
@@ -80,7 +81,7 @@ function LoginPageContent() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: buildAuthRedirectUrl("/dashboard"),
       },
     });
 

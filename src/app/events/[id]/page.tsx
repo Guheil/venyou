@@ -66,12 +66,22 @@ export default function EventDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = typeof params.id === "string" ? params.id : Array.isArray(params.id) ? params.id[0] : "";
-  const { getEvent, deleteEvent, updateEvent } = useEventsContext();
+  const { hydrated, getEvent, deleteEvent, updateEvent } = useEventsContext();
   const { info, success, error } = useToast();
 
   const ev = getEvent(id);
   const [statusOpen, setStatusOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+
+  if (!hydrated) {
+    return (
+      <AppShell>
+        <main className="flex h-full min-h-[60vh] items-center justify-center px-6 py-20">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#2A6558] border-t-transparent" />
+        </main>
+      </AppShell>
+    );
+  }
 
   if (!ev) {
     return (

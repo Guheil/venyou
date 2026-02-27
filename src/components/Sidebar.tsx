@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/lib/ToastContext";
+import { ROUTES } from "@/lib/routes";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -20,15 +21,17 @@ import {
   X,
   Sparkles,
   Clock,
+  MessageCircle,
 } from "lucide-react";
 
 const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "My Events", href: "/events", icon: CalendarDays },
-  { label: "Create Event", href: "/create-event", icon: Plus },
-  { label: "Recommendations", href: "/recommendations", icon: MapPin },
-  { label: "Profile", href: "/profile", icon: UserRound },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Dashboard", href: ROUTES.dashboard, icon: LayoutDashboard },
+  { label: "My Events", href: ROUTES.events, icon: CalendarDays },
+  { label: "Create Event", href: ROUTES.createEvent, icon: Plus },
+  { label: "Recommendations", href: ROUTES.recommendations, icon: MapPin },
+  { label: "AI Support", href: ROUTES.support, icon: MessageCircle },
+  { label: "Profile", href: ROUTES.profile, icon: UserRound },
+  { label: "Settings", href: ROUTES.settings, icon: Settings },
 ];
 
 export default function Sidebar() {
@@ -47,7 +50,7 @@ export default function Sidebar() {
     setLoggingOut(true);
     try {
       await signOut();
-      router.replace("/login");
+      router.replace(ROUTES.login);
     } catch {
       error("Unable to sign out", "Please try again.");
     } finally {
@@ -87,7 +90,7 @@ export default function Sidebar() {
       {/* Logo + collapse toggle */}
       <div className={`flex items-center border-b border-[#E0DDD5] py-5 ${collapsed ? "justify-center px-3" : "justify-between px-5"}`}>
         {!collapsed && (
-          <Link href="/" className="flex items-center gap-2">
+          <Link href={ROUTES.home} className="flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2A6558] text-white font-bold text-xs">
               V
             </span>
@@ -97,7 +100,7 @@ export default function Sidebar() {
           </Link>
         )}
         {collapsed && (
-          <Link href="/">
+          <Link href={ROUTES.home}>
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2A6558] text-white font-bold text-xs">
               V
             </span>
@@ -188,7 +191,7 @@ export default function Sidebar() {
     <>
       {/* Mobile top bar */}
       <div className="sticky top-0 z-40 flex w-full items-center justify-between border-b border-[#E0DDD5] bg-[#FDFCF9] px-5 py-4 lg:hidden">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href={ROUTES.home} className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2A6558] text-white font-bold text-xs">
             V
           </span>

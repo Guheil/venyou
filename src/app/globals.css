@@ -385,3 +385,30 @@ select {
   transform: translateY(-3px);
   box-shadow: 0 12px 40px rgba(26, 24, 23, 0.1);
 }
+
+/* Mapbox */
+.mapboxgl-map {
+  position: relative;
+  overflow: hidden;
+  font-family: var(--font-jakarta), "Plus Jakarta Sans", system-ui, sans-serif;
+}
+
+.mapboxgl-canvas {
+  outline: none;
+}
+
+.mapboxgl-ctrl-group {
+  border: 1px solid #e0ddd5;
+  box-shadow: 0 4px 18px rgba(26, 24, 23, 0.12);
+}
+
+.mapboxgl-popup-content {
+  border-radius: 10px;
+  border: 1px solid #e0ddd5;
+  padding: 8px 10px;
+  color: #1a1817;
+}
+
+.mapboxgl-popup-tip {
+  border-top-color: #e0ddd5;
+}

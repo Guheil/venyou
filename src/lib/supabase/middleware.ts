@@ -1,21 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-
-const protectedRoutes = [
-  "/dashboard",
-  "/events",
-  "/create-event",
-  "/recommendations",
-  "/profile",
-  "/settings",
-];
-const authRoutes = ["/login", "/register"];
+import { shouldRequireSocialOnboarding } from "@/lib/onboardingStatus";
+import {
+  AUTH_ROUTE_PREFIXES,
+  PROTECTED_ROUTE_PREFIXES,
+  ROUTES,
+  pathMatchesPrefixes,
+} from "@/lib/routes";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-function routeMatches(pathname: string, routes: string[]) {
-  return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
-}
 
 export async function updateSession(request: NextRequest) {
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -52,35 +45,27 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isProtectedRoute = routeMatches(pathname, protectedRoutes);
-  const isAuthRoute = routeMatches(pathname, authRoutes);
-  const authProvider =
-    typeof user?.app_metadata?.provider === "string"
-      ? user.app_metadata.provider
-      : null;
-  const isSocialProvider = Boolean(authProvider && authProvider !== "email");
-  const onboardingComplete =
-    user?.user_metadata?.onboarding_complete === true ||
-    user?.user_metadata?.onboarding_complete === "true";
-  const needsOnboarding = Boolean(user && isSocialProvider && !onboardingComplete);
+  const isProtectedRoute = pathMatchesPrefixes(pathname, PROTECTED_ROUTE_PREFIXES);
+  const isAuthRoute = pathMatchesPrefixes(pathname, AUTH_ROUTE_PREFIXES);
+  const needsOnboarding = shouldRequireSocialOnboarding(user ?? null);
 
   if (!user && isProtectedRoute) {
     const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
+    loginUrl.pathname = ROUTES.login;
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  if (needsOnboarding && pathname !== "/register") {
+  if (needsOnboarding && pathname !== ROUTES.register) {
     const registerUrl = request.nextUrl.clone();
-    registerUrl.pathname = "/register";
+    registerUrl.pathname = ROUTES.register;
     registerUrl.searchParams.delete("next");
     return NextResponse.redirect(registerUrl);
   }
 
   if (user && !needsOnboarding && isAuthRoute) {
     const dashboardUrl = request.nextUrl.clone();
-    dashboardUrl.pathname = "/dashboard";
+    dashboardUrl.pathname = ROUTES.dashboard;
     dashboardUrl.searchParams.delete("next");
     return NextResponse.redirect(dashboardUrl);
   }

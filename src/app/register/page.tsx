@@ -122,6 +122,11 @@ export default function RegisterPage() {
   const hasPendingOnboardingSession = needsOnboarding;
 
   useEffect(() => {
+    if (!user || needsOnboarding || done) return;
+    router.replace("/dashboard");
+  }, [done, needsOnboarding, router, user]);
+
+  useEffect(() => {
     return () => {
       if (hasPendingOnboardingSession && !done) {
         void supabase.auth.signOut();

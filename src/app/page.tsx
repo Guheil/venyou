@@ -357,12 +357,6 @@ export default function LandingPage() {
                   >
                     Create Free Account <ArrowRight size={16} />
                   </Link>
-                  <Link
-                    href="/create-event"
-                    className="flex items-center justify-center gap-2 rounded-full border border-white/25 bg-transparent px-6 py-3 text-sm font-semibold text-white/90 transition hover:border-white hover:bg-white/10"
-                  >
-                    Start Without Account
-                  </Link>
                 </div>
 
                 <div className="mt-6 grid grid-cols-3 gap-3 border-t border-white/15 pt-5">

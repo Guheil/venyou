@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import "mapbox-gl/dist/mapbox-gl.css";
 import { EventsProvider } from "@/lib/EventsContext";
 import { ToastProvider } from "@/lib/ToastContext";
 import { AuthProvider } from "@/lib/AuthContext";

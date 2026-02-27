@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import StepIndicator from "@/components/StepIndicator";
 import AppShell from "@/components/AppShell";
+import MapboxLocationPicker from "@/components/MapboxLocationPicker";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useToast } from "@/lib/ToastContext";
+import type { MapboxLocation } from "@/lib/mapbox";
 import type { SavedEvent } from "@/lib/types";
 import {
   ArrowRight,
@@ -92,6 +94,27 @@ const CITIES = [
   "Davao City",
 ];
 
+function normalizeCityForForm(candidateCity: string): string {
+  const normalized = candidateCity.trim().toLowerCase();
+  if (!normalized) return "";
+
+  const direct = CITIES.find((city) => city.toLowerCase() === normalized);
+  if (direct) return direct;
+
+  if (normalized.includes("taguig")) return "Taguig (BGC)";
+  if (normalized.includes("quezon")) return "Quezon City";
+  if (normalized.includes("parañaque") || normalized.includes("paranaque")) {
+    return "Paranaque";
+  }
+
+  const fuzzy = CITIES.find((city) => {
+    const cityToken = city.toLowerCase().replace(" (bgc)", "");
+    return normalized.includes(cityToken) || cityToken.includes(normalized);
+  });
+
+  return fuzzy ?? candidateCity.trim();
+}
+
 const WIZARD_STEPS = [
   { id: 1, label: "Basics" },
   { id: 2, label: "Guests" },
@@ -168,6 +191,20 @@ export default function CreateEventPage() {
   const set = (key: keyof EventForm, value: EventForm[keyof EventForm]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  const cityInPresetList = CITIES.includes(form.city);
+
+  const handleMapPick = (location: MapboxLocation) => {
+    const mappedCity = normalizeCityForForm(location.city);
+    if (mappedCity) {
+      set("city", mappedCity);
+    }
+
+    const bestArea = location.address || location.area;
+    if (bestArea) {
+      set("area", bestArea);
+    }
+  };
+
   const toggleAmenity = (a: string) => {
     setForm((prev) => ({
       ...prev,
@@ -242,9 +279,9 @@ export default function CreateEventPage() {
     };
 
     try {
-      await addEvent(newEvent);
+      const savedEvent = await addEvent(newEvent);
       // Simulate AI processing, then go to recommendations with the event id
-      setTimeout(() => router.push(`/recommendations?event=${newEvent.id}`), 3000);
+      setTimeout(() => router.push(`/recommendations?event=${savedEvent.id}`), 3000);
     } catch {
       setProcessing(false);
       showError("Unable to save event", "Please try again.");
@@ -436,6 +473,9 @@ export default function CreateEventPage() {
                   <FieldLabel>City</FieldLabel>
                   <SelectInput value={form.city} onChange={(e) => set("city", e.target.value)} error={errors.city}>
                     <option value="">Select a city…</option>
+                    {!cityInPresetList && form.city && (
+                      <option value={form.city}>{form.city}</option>
+                    )}
                     {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </SelectInput>
                 </div>
@@ -450,6 +490,17 @@ export default function CreateEventPage() {
                       className="pl-10"
                     />
                   </div>
+                </div>
+                <div>
+                  <FieldLabel>Pin Exact Location</FieldLabel>
+                  <MapboxLocationPicker
+                    city={form.city}
+                    area={form.area}
+                    onPick={handleMapPick}
+                  />
+                  <p className="mt-1 text-xs text-[#7C7671]">
+                    Click the map to drop a pin and auto-fill your location details.
+                  </p>
                 </div>
                 <div>
                   <FieldLabel>Search Radius: <strong>{form.radiusKm} km</strong></FieldLabel>
@@ -663,3 +714,4 @@ export default function CreateEventPage() {
     </AppShell>
   );
 }
+

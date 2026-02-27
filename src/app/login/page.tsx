@@ -81,7 +81,7 @@ function LoginPageContent() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: buildAuthRedirectUrl("/dashboard"),
+        redirectTo: buildAuthRedirectUrl("/register"),
       },
     });
 
@@ -146,6 +146,13 @@ function LoginPageContent() {
               <span className="text-xl font-bold tracking-tight text-[#1A1817]">
                 Ven<span className="text-[#2A6558]">YOU</span>
               </span>
+            </Link>
+
+            <Link
+              href="/"
+              className="mb-4 inline-flex items-center text-sm font-medium text-[#2A6558] hover:underline"
+            >
+              ← Back to Home
             </Link>
 
             <h1 className="mb-2 text-3xl font-extrabold tracking-tight text-[#1A1817]">Sign In</h1>

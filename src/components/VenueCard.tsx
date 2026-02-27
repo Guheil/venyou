@@ -6,6 +6,7 @@ export interface Venue {
   name: string;
   type: string;
   address: string;
+  city?: string;
   distance: number; // km
   capacity: number;
   rating: number;
@@ -21,15 +22,19 @@ export interface Venue {
 interface VenueCardProps {
   venue: Venue;
   rank: number;
+  eventId?: string;
 }
 
-export default function VenueCard({ venue, rank }: VenueCardProps) {
+export default function VenueCard({ venue, rank, eventId }: VenueCardProps) {
   const matchColor =
     venue.match >= 90
       ? "text-[#27AE60] bg-[#EAFAF1]"
       : venue.match >= 75
       ? "text-[#2A6558] bg-[#EAF2F0]"
       : "text-[#7C7671] bg-[#F8F6F1]";
+  const detailsHref = eventId
+    ? `/venue/${venue.id}?event=${encodeURIComponent(eventId)}`
+    : `/venue/${venue.id}`;
 
   return (
     <div className="venue-card rounded-2xl border border-[#E0DDD5] bg-[#FDFCF9] overflow-hidden">
@@ -119,7 +124,7 @@ export default function VenueCard({ venue, rank }: VenueCardProps) {
         </p>
 
         <Link
-          href={`/venue/${venue.id}`}
+          href={detailsHref}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1A1817] py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#2A6558]"
         >
           View Details

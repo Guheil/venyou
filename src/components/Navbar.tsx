@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
+import { ROUTES } from "@/lib/routes";
 
 interface NavbarProps {
   variant?: "transparent" | "solid";
@@ -27,7 +28,7 @@ export default function Navbar({
     <header className={`${base} sticky top-0 z-50`}>
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 group">
+        <Link href={ROUTES.home} className="flex items-center gap-2 group">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#2A6558] text-white font-bold text-sm tracking-tight">
             V
           </span>
@@ -53,13 +54,13 @@ export default function Navbar({
           {isAuthenticated ? (
             <>
               <Link
-                href="/dashboard"
+                href={ROUTES.dashboard}
                 className="text-sm font-medium text-[#7C7671] transition-colors hover:text-[#1A1817]"
               >
                 Dashboard
               </Link>
               <Link
-                href="/create-event"
+                href={ROUTES.createEvent}
                 className="rounded-full bg-[#2A6558] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#215249]"
               >
                 New Event
@@ -68,13 +69,13 @@ export default function Navbar({
           ) : (
             <>
               <Link
-                href="/login"
+                href={ROUTES.login}
                 className="text-sm font-medium text-[#7C7671] transition-colors hover:text-[#1A1817]"
               >
                 Sign In
               </Link>
               <Link
-                href="/register"
+                href={ROUTES.register}
                 className="rounded-full bg-[#2A6558] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#215249]"
               >
                 Get Started
@@ -114,14 +115,14 @@ export default function Navbar({
             {isAuthenticated ? (
               <>
                 <Link
-                  href="/dashboard"
+                  href={ROUTES.dashboard}
                   className="text-sm font-medium text-[#7C7671]"
                   onClick={() => setMenuOpen(false)}
                 >
                   Dashboard
                 </Link>
                 <Link
-                  href="/create-event"
+                  href={ROUTES.createEvent}
                   className="rounded-full bg-[#2A6558] px-5 py-2 text-center text-sm font-semibold text-white"
                   onClick={() => setMenuOpen(false)}
                 >
@@ -131,14 +132,14 @@ export default function Navbar({
             ) : (
               <>
                 <Link
-                  href="/login"
+                  href={ROUTES.login}
                   className="text-sm font-medium text-[#7C7671]"
                   onClick={() => setMenuOpen(false)}
                 >
                   Sign In
                 </Link>
                 <Link
-                  href="/register"
+                  href={ROUTES.register}
                   className="rounded-full bg-[#2A6558] px-5 py-2 text-center text-sm font-semibold text-white"
                   onClick={() => setMenuOpen(false)}
                 >

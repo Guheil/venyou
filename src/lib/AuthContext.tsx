@@ -10,6 +10,10 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
+import {
+  isOnboardingComplete,
+  shouldRequireSocialOnboarding,
+} from "@/lib/onboardingStatus";
 
 interface AuthContextValue {
   user: User | null;
@@ -24,16 +28,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const authProvider =
-    typeof user?.app_metadata?.provider === "string"
-      ? user.app_metadata.provider
-      : null;
-  const isSocialProvider = Boolean(authProvider && authProvider !== "email");
-  const onboardingComplete = Boolean(
-    user?.user_metadata?.onboarding_complete === true ||
-      user?.user_metadata?.onboarding_complete === "true"
-  );
-  const needsOnboarding = isSocialProvider && !onboardingComplete;
+  const onboardingComplete = isOnboardingComplete(user);
+  const needsOnboarding = shouldRequireSocialOnboarding(user);
 
   useEffect(() => {
     let mounted = true;

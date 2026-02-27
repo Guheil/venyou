@@ -43,6 +43,9 @@ export default function DashboardPage() {
     .slice(0, 3);
 
   const recentEvents = events.slice(0, 4);
+  const exploreVenuesHref = events[0]
+    ? `/recommendations?event=${encodeURIComponent(events[0].id)}`
+    : "/recommendations";
 
   return (
     <AppShell>
@@ -245,7 +248,7 @@ export default function DashboardPage() {
                   { label: "Plan New Event", href: "/create-event", icon: <Plus size={15} /> },
                   { label: "View All Events", href: "/events", icon: <CalendarDays size={15} /> },
                   { label: "Cost Analysis", href: "/events#analysis", icon: <BarChart3 size={15} /> },
-                  { label: "Explore Venues", href: "/recommendations", icon: <MapPin size={15} /> },
+                  { label: "Explore Venues", href: exploreVenuesHref, icon: <MapPin size={15} /> },
                 ].map((a) => (
                   <Link
                     key={a.label}

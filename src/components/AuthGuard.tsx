@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
+import { ROUTES } from "@/lib/routes";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -12,12 +13,16 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading || user) return;
     const redirectPath = pathname ?? "";
-    router.replace(redirectPath ? `/login?next=${redirectPath}` : "/login");
+    router.replace(
+      redirectPath
+        ? `${ROUTES.login}?next=${encodeURIComponent(redirectPath)}`
+        : ROUTES.login
+    );
   }, [loading, pathname, router, user]);
 
   useEffect(() => {
     if (loading || !user || !needsOnboarding) return;
-    router.replace("/register");
+    router.replace(ROUTES.register);
   }, [loading, needsOnboarding, router, user]);
 
   if (loading) {

@@ -7,7 +7,7 @@ import type { SavedEvent } from "@/lib/types";
 interface EventsContextValue {
   events: SavedEvent[];
   hydrated: boolean;
-  addEvent: (e: SavedEvent) => Promise<void>;
+  addEvent: (e: SavedEvent) => Promise<SavedEvent>;
   updateEvent: (id: string, patch: Partial<SavedEvent>) => Promise<void>;
   deleteEvent: (id: string) => Promise<void>;
   getEvent: (id: string) => SavedEvent | undefined;

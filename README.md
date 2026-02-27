@@ -40,6 +40,7 @@ In Supabase SQL Editor, run the SQL from [`supabase/schema.sql`](./supabase/sche
 
 This creates:
 - `public.events` table
+- `public.user_preferences` table (per-user UI preferences like theme)
 - `public.venues` table (seed venue catalog)
 - `public.recommend_venues_for_event(...)` RPC function for AI-style fit ranking
 - indexes for fast per-user queries

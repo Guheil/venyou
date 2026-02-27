@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { useAuth } from "@/lib/AuthContext";
+import { useTheme, type ThemeMode } from "@/lib/ThemeContext";
 import { useToast } from "@/lib/ToastContext";
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -14,9 +15,11 @@ import {
   KeyRound,
   Lock,
   Mail,
+  Moon,
   Save,
   ShieldCheck,
   Sparkles,
+  Sun,
 } from "lucide-react";
 
 interface SettingsForm {
@@ -63,8 +66,11 @@ interface SettingsEditorProps {
 
 function SettingsEditor({ user, initialSettings }: SettingsEditorProps) {
   const { success, error: showError } = useToast();
+  const { theme, setTheme, savingTheme } = useTheme();
   const [settings, setSettings] = useState<SettingsForm>(initialSettings);
   const [savedSettings, setSavedSettings] = useState<SettingsForm>(initialSettings);
+  const [themeSelection, setThemeSelection] = useState<ThemeMode>(theme);
+  const [savedTheme, setSavedTheme] = useState<ThemeMode>(theme);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newPassword: "",
     confirmPassword: "",
@@ -77,9 +83,15 @@ function SettingsEditor({ user, initialSettings }: SettingsEditorProps) {
     () => JSON.stringify(settings) !== JSON.stringify(savedSettings),
     [settings, savedSettings]
   );
+  const hasThemeChanges = themeSelection !== savedTheme;
 
   const providerLabel = displayProvider(user.app_metadata?.provider);
   const isEmailProvider = user.app_metadata?.provider === "email";
+
+  useEffect(() => {
+    setThemeSelection(theme);
+    setSavedTheme(theme);
+  }, [theme]);
 
   const handleSavePreferences = async () => {
     setSavingPreferences(true);
@@ -141,6 +153,17 @@ function SettingsEditor({ user, initialSettings }: SettingsEditorProps) {
     setSavingPassword(false);
     setPasswordForm({ newPassword: "", confirmPassword: "" });
     success("Password updated", "Your new password is now active.");
+  };
+
+  const handleSaveTheme = async () => {
+    const saved = await setTheme(themeSelection, { persist: true });
+    if (!saved) {
+      showError("Unable to save theme", "Please try again.");
+      return;
+    }
+
+    setSavedTheme(themeSelection);
+    success("Theme updated", `Theme set to ${themeSelection}.`);
   };
 
   return (
@@ -217,6 +240,88 @@ function SettingsEditor({ user, initialSettings }: SettingsEditorProps) {
         </section>
 
         <section className="space-y-6 lg:col-span-2">
+          <div className="rounded-2xl border border-[#E0DDD5] bg-white p-6">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-[#1A1817]">Appearance</h2>
+                <p className="mt-1 text-sm text-[#7C7671]">
+                  Choose your personal theme. This is saved per account.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSaveTheme()}
+                disabled={!hasThemeChanges || savingTheme}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#1A1817] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2A6558] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingTheme ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  <Save size={15} />
+                )}
+                Save Theme
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                {
+                  key: "light" as ThemeMode,
+                  title: "Light",
+                  description: "Clean and bright interface for daytime use.",
+                  icon: <Sun size={16} />,
+                },
+                {
+                  key: "dark" as ThemeMode,
+                  title: "Dark",
+                  description: "Lower glare for night-time planning sessions.",
+                  icon: <Moon size={16} />,
+                },
+              ].map((option) => {
+                const selected = themeSelection === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => {
+                      setThemeSelection(option.key);
+                      void setTheme(option.key, { persist: false });
+                    }}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      selected
+                        ? "border-[#C8E0DA] bg-[#EAF2F0]"
+                        : "border-[#E0DDD5] bg-white hover:border-[#2A6558]"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p
+                          className={`text-sm font-semibold ${
+                            selected ? "text-[#215249]" : "text-[#1A1817]"
+                          }`}
+                        >
+                          {option.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-[#7C7671]">
+                          {option.description}
+                        </p>
+                      </div>
+                      <span
+                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                          selected
+                            ? "bg-[#2A6558] text-white"
+                            : "bg-[#F0EDEA] text-[#7C7671]"
+                        }`}
+                      >
+                        {option.icon}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-[#E0DDD5] bg-white p-6">
             <div className="mb-5">
               <h2 className="text-xl font-bold text-[#1A1817]">Notifications</h2>

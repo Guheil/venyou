@@ -104,35 +104,39 @@ function CostAnalysis({ events }: { events: SavedEvent[] }) {
             label: "Total Min Budget",
             value: `₱${totalMinAll.toLocaleString()}`,
             sub: "across all events",
-            bg: "bg-[#EAFAF1]",
+            bg: "var(--vn-surface-success)",
           },
           {
             icon: <Minus size={16} className="text-[#2A6558]" />,
             label: "Total Mid Estimate",
             value: `₱${totalMidAll.toLocaleString()}`,
             sub: "midpoint estimate",
-            bg: "bg-[#EAF2F0]",
+            bg: "var(--vn-surface-soft)",
           },
           {
             icon: <TrendingUp size={16} className="text-[#C0392B]" />,
             label: "Total Max Budget",
             value: `₱${totalMaxAll.toLocaleString()}`,
             sub: "upper ceiling",
-            bg: "bg-[#FDECEA]",
+            bg: "var(--vn-surface-danger)",
           },
           {
             icon: <Users size={16} className="text-[#2A6558]" />,
             label: "Avg. Cost / Head",
             value: `₱${avgBudgetPerHead.toLocaleString()}`,
             sub: `across ${totalPax.toLocaleString()} total guests`,
-            bg: "bg-[#EAF2F0]",
+            bg: "var(--vn-surface-soft)",
           },
         ].map((m) => (
           <div
             key={m.label}
-            className={`rounded-2xl border border-[#E0DDD5] ${m.bg} p-5`}
+            className="rounded-2xl border border-[#E0DDD5] p-5"
+            style={{ backgroundColor: m.bg }}
           >
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-xl bg-white">
+            <div
+              className="mb-2 flex h-8 w-8 items-center justify-center rounded-xl"
+              style={{ backgroundColor: "var(--vn-surface)" }}
+            >
               {m.icon}
             </div>
             <p className="text-xl font-extrabold text-[#1A1817]">{m.value}</p>

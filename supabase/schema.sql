@@ -85,6 +85,62 @@ revoke all on public.events from authenticated;
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on public.events to authenticated;
 
+create table if not exists public.user_preferences (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  theme text not null default 'light' check (theme in ('light', 'dark'))
+);
+
+create or replace function public.set_user_preferences_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = timezone('utc', now());
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_user_preferences_updated_at on public.user_preferences;
+create trigger trg_user_preferences_updated_at
+before update on public.user_preferences
+for each row execute function public.set_user_preferences_updated_at();
+
+alter table public.user_preferences enable row level security;
+alter table public.user_preferences force row level security;
+
+drop policy if exists "Users can read own preferences" on public.user_preferences;
+create policy "Users can read own preferences"
+  on public.user_preferences
+  for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own preferences" on public.user_preferences;
+create policy "Users can insert own preferences"
+  on public.user_preferences
+  for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own preferences" on public.user_preferences;
+create policy "Users can update own preferences"
+  on public.user_preferences
+  for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own preferences" on public.user_preferences;
+create policy "Users can delete own preferences"
+  on public.user_preferences
+  for delete
+  using (auth.uid() = user_id);
+
+revoke all on public.user_preferences from public;
+revoke all on public.user_preferences from anon;
+revoke all on public.user_preferences from authenticated;
+
+grant select, insert, update, delete on public.user_preferences to authenticated;
+
 create table if not exists public.venues (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default timezone('utc', now()),

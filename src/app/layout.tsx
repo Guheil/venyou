@@ -5,6 +5,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { EventsProvider } from "@/lib/EventsContext";
 import { ToastProvider } from "@/lib/ToastContext";
 import { AuthProvider } from "@/lib/AuthContext";
+import { ThemeProvider } from "@/lib/ThemeContext";
 
 const jakarta = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
@@ -28,9 +29,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${jakarta.variable} antialiased`}>
         <AuthProvider>
-          <ToastProvider>
-            <EventsProvider>{children}</EventsProvider>
-          </ToastProvider>
+          <ThemeProvider>
+            <ToastProvider>
+              <EventsProvider>{children}</EventsProvider>
+            </ToastProvider>
+          </ThemeProvider>
         </AuthProvider>
       </body>
     </html>

@@ -30,6 +30,16 @@ const statusIcon: Record<string, React.ReactNode> = {
   Confirmed: <CheckCircle2 size={12} />,
 };
 
+function formatBudgetRange(
+  budgetMin: number,
+  budgetMax: number,
+  budgetType: "per-head" | "total"
+) {
+  const minLabel = `PHP ${budgetMin.toLocaleString()}`;
+  const maxLabel = `PHP ${budgetMax.toLocaleString()}`;
+  return `${minLabel} - ${maxLabel}${budgetType === "per-head" ? " / head" : " total"}`;
+}
+
 export default function DashboardPage() {
   const { events, hydrated } = useEventsContext();
 
@@ -187,9 +197,7 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 text-xs text-[#7C7671]">
                         <BarChart3 size={12} className="text-[#2A6558]" />
-                        Budget: â‚±{ev.budgetMin.toLocaleString()} â€“{" "}
-                        â‚±{ev.budgetMax.toLocaleString()}
-                        {ev.budgetType === "per-head" ? " / head" : " total"}
+                        Budget: {formatBudgetRange(ev.budgetMin, ev.budgetMax, ev.budgetType)}
                       </div>
                       <Link
                         href={`/events/${ev.id}`}
@@ -230,7 +238,7 @@ export default function DashboardPage() {
                             {ev.eventName}
                           </p>
                           <p className="text-xs text-[#7C7671]">
-                            {ev.pax} guests Â· {ev.city}
+                            {ev.pax} guests - {ev.city}
                           </p>
                         </div>
                       </Link>

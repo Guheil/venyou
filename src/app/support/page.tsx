@@ -17,7 +17,7 @@ import { ArrowLeft, Bot, SendHorizontal, Sparkles, Trash2, User } from "lucide-r
 
 const MAX_HISTORY_MESSAGES = 16;
 const NUMBERED_ITEM_PATTERN = /^\s*\d+[.)]\s+(.+)$/;
-const BULLET_ITEM_PATTERN = /^\s*[-*•]\s+(.+)$/;
+const BULLET_ITEM_PATTERN = /^\s*[-*\u2022]\s+(.+)$/;
 
 type ChatRole = "user" | "assistant";
 
@@ -75,7 +75,7 @@ function renderAssistantContent(content: string): ReactNode {
       blocks.push(
         <h4
           key={`heading-${i}`}
-          className="pt-1 text-[11px] font-semibold uppercase tracking-widest text-[#4E4A46]"
+          className="pt-1 text-[11px] font-semibold uppercase tracking-widest text-[#7C7671]"
         >
           {line.slice(0, -1)}
         </h4>
@@ -376,10 +376,14 @@ export default function SupportPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <section className="flex h-[72vh] min-h-[560px] flex-col overflow-hidden rounded-2xl border border-[#E0DDD5] bg-white shadow-sm">
+          <section className="flex h-[72vh] min-h-[560px] flex-col overflow-hidden rounded-2xl border border-[#E0DDD5] bg-[var(--vn-surface)] shadow-sm">
             <div
               ref={chatScrollRef}
-              className="flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-[#FCFBF8] to-[#F8F6F1] p-5"
+              className="flex-1 space-y-4 overflow-y-auto p-5"
+              style={{
+                background:
+                  "linear-gradient(to bottom, var(--vn-surface) 0%, var(--vn-bg) 100%)",
+              }}
             >
               {messages.map((message) => {
                 const isUser = message.role === "user";
@@ -392,7 +396,7 @@ export default function SupportPage() {
                       className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                         isUser
                           ? "rounded-br-md bg-[#2A6558] text-white"
-                          : "rounded-bl-md border border-[#DAD6CE] bg-[#FFFEFC] text-[#1A1817]"
+                          : "rounded-bl-md border border-[#E0DDD5] bg-[var(--vn-surface)] text-[#1A1817]"
                       }`}
                     >
                       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest opacity-80">
@@ -411,14 +415,14 @@ export default function SupportPage() {
 
               {sending && (
                 <article className="flex justify-start">
-                  <div className="rounded-2xl rounded-bl-md border border-[#E0DDD5] bg-white px-4 py-3 text-sm text-[#7C7671] shadow-sm">
+                  <div className="rounded-2xl rounded-bl-md border border-[#E0DDD5] bg-[var(--vn-surface)] px-4 py-3 text-sm text-[#7C7671] shadow-sm">
                     Thinking and drafting clear steps...
                   </div>
                 </article>
               )}
             </div>
 
-            <div className="border-t border-[#E0DDD5] bg-white p-4">
+            <div className="border-t border-[#E0DDD5] bg-[var(--vn-surface)] p-4">
               <div className="flex items-end gap-3">
                 <textarea
                   value={draft}
@@ -426,7 +430,7 @@ export default function SupportPage() {
                   onKeyDown={onComposerKeyDown}
                   rows={3}
                   placeholder="Ask in plain words. Example: 'How do I choose between 3 venues for 120 guests?'"
-                  className="min-h-[88px] flex-1 resize-none rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] px-3.5 py-2.5 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
+                  className="min-h-[88px] flex-1 resize-none rounded-xl border border-[#E0DDD5] bg-[var(--vn-bg-alt)] px-3.5 py-2.5 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
                 />
                 <button
                   type="button"

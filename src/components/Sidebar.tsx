@@ -201,24 +201,40 @@ export default function Sidebar() {
         </Link>
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="rounded-lg p-1.5 text-[#1A1817]"
+          className="rounded-lg p-1.5 text-[#1A1817] transition-all duration-200 hover:bg-[#EAF2F0]"
+          aria-label="Toggle navigation menu"
+          aria-expanded={mobileOpen}
         >
-          {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          <span
+            className={`block transition-transform duration-300 ${
+              mobileOpen ? "rotate-90" : "rotate-0"
+            }`}
+          >
+            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          </span>
         </button>
       </div>
 
       {/* Mobile drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div className="relative h-full w-[84vw] max-w-72 overflow-y-auto bg-[#FDFCF9] shadow-xl">
-            {sidebarContent}
-          </div>
+      <div
+        className={`fixed inset-0 z-50 lg:hidden transition-opacity duration-300 ${
+          mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      >
+        <div
+          className={`absolute inset-0 bg-black/30 transition-opacity duration-300 ${
+            mobileOpen ? "opacity-100" : "opacity-0"
+          }`}
+          onClick={() => setMobileOpen(false)}
+        />
+        <div
+          className={`relative h-full w-[84vw] max-w-72 overflow-y-auto bg-[#FDFCF9] shadow-xl transition-transform duration-300 ease-out ${
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          {sidebarContent}
         </div>
-      )}
+      </div>
 
       {/* Desktop sidebar */}
       <aside

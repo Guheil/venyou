@@ -223,15 +223,22 @@ function RecommendationsPageContent() {
 
       setGeneratingAiInsights(true);
 
+      // Enforce a minimum 1.4 s delay before the request resolves.
+      // This prevents hammering Groq's TPM limit when venues load fast.
+      const minDelay = new Promise<void>((resolve) => setTimeout(resolve, 3000));
+
       try {
         const payload = buildAiInsightsPayload(selectedEvent, rows);
-        const insightResponse = await fetch("/api/recommendations/insights", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
+        const [insightResponse] = await Promise.all([
+          fetch("/api/recommendations/insights", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          }),
+          minDelay,
+        ]);
 
         if (!active) return;
 
@@ -649,6 +656,10 @@ function RecommendationsPageContent() {
                       venue={venue}
                       rank={index + 1}
                       eventId={selectedEvent.id}
+                      prefillDate={selectedEvent.eventDate || undefined}
+                      prefillStartTime={selectedEvent.startTime || undefined}
+                      prefillDurationHours={selectedEvent.durationHours}
+                      prefillGuestCount={selectedEvent.pax}
                     />
                   ))}
                 </div>

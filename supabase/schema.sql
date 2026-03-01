@@ -694,3 +694,340 @@ end;
 $$;
 
 grant execute on function public.recommend_venues_for_event(uuid, integer) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────
+-- VENUE RESERVATIONS
+-- ─────────────────────────────────────────────────────────────
+
+create table if not exists public.venue_reservations (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+
+  user_id uuid not null references auth.users (id) on delete cascade,
+  venue_id uuid not null references public.venues (id) on delete cascade,
+  event_id uuid references public.events (id) on delete set null,
+
+  -- When the event is happening
+  event_date date not null,
+  start_time text not null default '08:00',
+  duration_hours integer not null default 4 check (duration_hours between 1 and 24),
+
+  -- Guest & cost
+  guest_count integer not null check (guest_count > 0),
+  price_per_head integer not null check (price_per_head >= 0),
+  total_amount integer not null check (total_amount >= 0),
+
+  -- Contact info filled in during reservation
+  contact_name text not null,
+  contact_phone text not null,
+  special_requests text not null default '',
+
+  -- Payment
+  payment_method text not null check (payment_method in ('cash', 'gcash')),
+  payment_status text not null default 'pending'
+    check (payment_status in ('pending', 'paid', 'failed', 'refunded')),
+  gcash_number text,
+  payment_reference text,
+
+  -- Reservation lifecycle
+  reservation_status text not null default 'pending_payment'
+    check (reservation_status in ('pending_payment', 'confirmed', 'cancelled')),
+
+  -- Unique human-readable reference (shown to the user)
+  reference_number text not null unique,
+
+  -- Pending reservations expire after 30 minutes to free up the slot
+  expires_at timestamptz
+);
+
+-- Prevent any two active reservations for the same venue on the same date.
+-- Cancelled reservations do not block the slot.
+create unique index if not exists venue_reservations_no_double_book_idx
+  on public.venue_reservations (venue_id, event_date)
+  where reservation_status <> 'cancelled';
+
+create index if not exists venue_reservations_user_id_idx
+  on public.venue_reservations (user_id, created_at desc);
+
+create index if not exists venue_reservations_venue_id_idx
+  on public.venue_reservations (venue_id, event_date);
+
+create or replace function public.set_venue_reservations_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = timezone('utc', now());
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_venue_reservations_updated_at on public.venue_reservations;
+create trigger trg_venue_reservations_updated_at
+before update on public.venue_reservations
+for each row execute function public.set_venue_reservations_updated_at();
+
+alter table public.venue_reservations enable row level security;
+alter table public.venue_reservations force row level security;
+
+drop policy if exists "Users can read own reservations" on public.venue_reservations;
+create policy "Users can read own reservations"
+  on public.venue_reservations
+  for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own reservations" on public.venue_reservations;
+create policy "Users can insert own reservations"
+  on public.venue_reservations
+  for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own reservations" on public.venue_reservations;
+create policy "Users can update own reservations"
+  on public.venue_reservations
+  for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Allow reading active (non-cancelled) reservations for a venue so the UI
+-- can show whether a date is already taken.
+drop policy if exists "Authenticated users can read venue availability" on public.venue_reservations;
+create policy "Authenticated users can read venue availability"
+  on public.venue_reservations
+  for select
+  using (
+    auth.role() = 'authenticated'
+    and reservation_status <> 'cancelled'
+  );
+
+revoke all on public.venue_reservations from public;
+revoke all on public.venue_reservations from anon;
+revoke all on public.venue_reservations from authenticated;
+
+grant select, insert, update on public.venue_reservations to authenticated;
+
+-- ─────────────────────────────────────────────────────────────
+-- ATOMIC CREATE-RESERVATION FUNCTION
+-- Runs as SECURITY DEFINER (DB owner) so it can acquire a
+-- row-level lock on venues without needing the caller to have
+-- UPDATE privileges.  auth.uid() is still verified inside.
+-- ─────────────────────────────────────────────────────────────
+drop function if exists public.create_venue_reservation(
+  uuid, uuid, uuid, date, text, integer, integer, integer, integer,
+  text, text, text, text, text
+);
+create or replace function public.create_venue_reservation(
+  p_venue_id       uuid,
+  p_event_id       uuid,
+  p_event_date     date,
+  p_start_time     text,
+  p_duration_hours integer,
+  p_guest_count    integer,
+  p_price_per_head integer,
+  p_total_amount   integer,
+  p_contact_name   text,
+  p_contact_phone  text,
+  p_special_requests text,
+  p_payment_method text
+)
+returns table (
+  reservation_id   uuid,
+  reference_number text,
+  conflict         boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_existing_id    uuid;
+  v_ref            text;
+  v_new_id         uuid;
+  v_expires_at     timestamptz;
+begin
+  -- Reject unauthenticated callers even though we run as security definer
+  if auth.uid() is null then
+    raise exception 'UNAUTHORIZED' using hint = 'You must be logged in to make a reservation.';
+  end if;
+
+  -- Lock the venue row for the duration of this transaction so concurrent
+  -- calls for the same venue serialize properly.
+  perform id
+    from public.venues
+   where id = p_venue_id
+     and is_active = true
+     for update;
+
+  if not found then
+    raise exception 'VENUE_NOT_FOUND' using hint = 'The venue does not exist or is inactive.';
+  end if;
+
+  -- Check for a live reservation on the same date
+  select vr.id
+    into v_existing_id
+    from public.venue_reservations vr
+   where vr.venue_id = p_venue_id
+     and vr.event_date = p_event_date
+     and vr.reservation_status <> 'cancelled'
+     and (vr.expires_at is null or vr.expires_at > now())
+   limit 1;
+
+  if found then
+    -- Return conflict flag so the caller can show an appropriate message
+    return query select null::uuid, ''::text, true;
+    return;
+  end if;
+
+  -- Generate a short human-readable reference: e.g. VNY-A3F2B1C9
+  v_ref := 'VNY-' || upper(replace(substring(gen_random_uuid()::text from 1 for 9), '-', ''));
+
+  -- Pending reservations hold the slot for 30 minutes
+  v_expires_at := now() + interval '30 minutes';
+
+  insert into public.venue_reservations (
+    user_id,
+    venue_id,
+    event_id,
+    event_date,
+    start_time,
+    duration_hours,
+    guest_count,
+    price_per_head,
+    total_amount,
+    contact_name,
+    contact_phone,
+    special_requests,
+    payment_method,
+    payment_status,
+    reservation_status,
+    reference_number,
+    expires_at
+  ) values (
+    auth.uid(),
+    p_venue_id,
+    p_event_id,
+    p_event_date,
+    p_start_time,
+    p_duration_hours,
+    p_guest_count,
+    p_price_per_head,
+    p_total_amount,
+    p_contact_name,
+    p_contact_phone,
+    p_special_requests,
+    p_payment_method,
+    'pending',
+    'pending_payment',
+    v_ref,
+    v_expires_at
+  )
+  returning id into v_new_id;
+
+  return query select v_new_id, v_ref, false;
+end;
+$$;
+
+grant execute on function public.create_venue_reservation(
+  uuid, uuid, date, text, integer, integer, integer, integer,
+  text, text, text, text
+) to authenticated;
+
+-- Revoke direct execute from public/anon to be safe
+revoke all on function public.create_venue_reservation(
+  uuid, uuid, date, text, integer, integer, integer, integer,
+  text, text, text, text
+) from public, anon;
+
+-- ─────────────────────────────────────────────────────────────
+-- CONFIRM PAYMENT FUNCTION
+-- Marks the reservation as paid + confirmed, clears the expiry.
+-- ─────────────────────────────────────────────────────────────
+drop function if exists public.confirm_reservation_payment(uuid, text);
+create or replace function public.confirm_reservation_payment(
+  p_reservation_id uuid,
+  p_payment_reference text
+)
+returns boolean
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  update public.venue_reservations
+     set payment_status      = 'paid',
+         reservation_status  = 'confirmed',
+         payment_reference   = p_payment_reference,
+         expires_at          = null
+   where id            = p_reservation_id
+     and user_id       = auth.uid()
+     and reservation_status = 'pending_payment'
+     and payment_status     = 'pending';
+
+  get diagnostics v_count = row_count;
+  return v_count > 0;
+end;
+$$;
+
+grant execute on function public.confirm_reservation_payment(uuid, text) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────
+-- CANCEL RESERVATION FUNCTION
+-- ─────────────────────────────────────────────────────────────
+drop function if exists public.cancel_venue_reservation(uuid);
+create or replace function public.cancel_venue_reservation(p_reservation_id uuid)
+returns boolean
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  update public.venue_reservations
+     set reservation_status = 'cancelled',
+         payment_status     = case
+                                when payment_status = 'paid' then 'refunded'
+                                else 'failed'
+                              end
+   where id       = p_reservation_id
+     and user_id  = auth.uid()
+     and reservation_status <> 'cancelled';
+
+  get diagnostics v_count = row_count;
+  return v_count > 0;
+end;
+$$;
+
+grant execute on function public.cancel_venue_reservation(uuid) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────
+-- CLEANUP EXPIRED PENDING RESERVATIONS
+-- In production this would be called by a cron job.
+-- Exposed as an RPC so the client can call it on page load.
+-- ─────────────────────────────────────────────────────────────
+drop function if exists public.release_expired_reservations();
+create or replace function public.release_expired_reservations()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  update public.venue_reservations
+     set reservation_status = 'cancelled',
+         payment_status     = 'failed'
+   where reservation_status = 'pending_payment'
+     and expires_at is not null
+     and expires_at < now();
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+grant execute on function public.release_expired_reservations() to authenticated;

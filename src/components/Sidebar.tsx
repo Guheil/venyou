@@ -22,6 +22,7 @@ import {
   Sparkles,
   Clock,
   MessageCircle,
+  CalendarCheck,
 } from "lucide-react";
 
 const navItems = [
@@ -29,6 +30,7 @@ const navItems = [
   { label: "My Events", href: ROUTES.events, icon: CalendarDays },
   { label: "Create Event", href: ROUTES.createEvent, icon: Plus },
   { label: "Recommendations", href: ROUTES.recommendations, icon: MapPin },
+  { label: "My Reservations", href: ROUTES.reservations, icon: CalendarCheck },
   { label: "AI Support", href: ROUTES.support, icon: MessageCircle },
   { label: "Profile", href: ROUTES.profile, icon: UserRound },
   { label: "Settings", href: ROUTES.settings, icon: Settings },

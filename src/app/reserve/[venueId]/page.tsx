@@ -1,0 +1,951 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
+import AppShell from "@/components/AppShell";
+import { supabase } from "@/lib/supabase/client";
+import { ROUTES } from "@/lib/routes";
+import type { PaymentMethod } from "@/lib/types";
+import {
+  ArrowLeft,
+  ArrowRight,
+  MapPin,
+  Users,
+  Star,
+  Calendar,
+  Clock,
+  Phone,
+  User,
+  MessageSquare,
+  Banknote,
+  Smartphone,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  Copy,
+  Check,
+  CalendarCheck,
+  DollarSign,
+} from "lucide-react";
+
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
+interface VenueRow {
+  id: string;
+  name: string;
+  type: string;
+  address: string;
+  city: string;
+  area: string;
+  capacity: number;
+  price_per_head: number;
+  rating: number;
+  review_count: number;
+  setting: string;
+  tags: string[] | null;
+  description: string;
+  image_color: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────
+const TIME_OPTIONS = [
+  "06:00", "07:00", "08:00", "09:00", "10:00", "11:00",
+  "12:00", "13:00", "14:00", "15:00", "16:00", "17:00",
+  "18:00", "19:00", "20:00",
+].map((t) => {
+  const hour = parseInt(t.split(":")[0], 10);
+  const label =
+    hour === 0 ? "12:00 AM"
+    : hour < 12 ? `${hour}:00 AM`
+    : hour === 12 ? "12:00 PM"
+    : `${hour - 12}:00 PM`;
+  return { value: t, label };
+});
+
+const DURATION_OPTIONS = [2, 3, 4, 5, 6, 8, 10, 12].map((h) => ({
+  value: h,
+  label: `${h} hour${h > 1 ? "s" : ""}`,
+}));
+
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+function today(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+function formatDate(iso: string): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}, ${y}`;
+}
+
+function formatPeso(n: number): string {
+  return `₱${n.toLocaleString("en-PH")}`;
+}
+
+function timeLabel(t: string): string {
+  return TIME_OPTIONS.find((o) => o.value === t)?.label ?? t;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Step indicator
+// ─────────────────────────────────────────────────────────────
+const STEPS = ["Your Details", "Payment", "Confirmed!"];
+
+function StepBar({ current }: { current: number }) {
+  return (
+    <div className="mb-8 flex items-center">
+      {STEPS.map((label, i) => {
+        const n = i + 1;
+        const done = n < current;
+        const active = n === current;
+        return (
+          <div key={label} className="flex flex-1 items-center">
+            <div className="flex flex-col items-center gap-1.5 shrink-0">
+              <div
+                className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-all ${
+                  done
+                    ? "bg-[#2A6558] text-white"
+                    : active
+                    ? "bg-[#1A1817] text-white shadow-lg"
+                    : "bg-[#F0EEEA] text-[#B0ABA5] border border-[#E0DDD5]"
+                }`}
+              >
+                {done ? <Check size={15} /> : n}
+              </div>
+              <span
+                className={`text-xs font-semibold whitespace-nowrap ${
+                  active ? "text-[#1A1817]" : done ? "text-[#2A6558]" : "text-[#B0ABA5]"
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <div
+                className={`mb-5 mx-2 h-px flex-1 transition-all ${
+                  done ? "bg-[#2A6558]" : "bg-[#E0DDD5]"
+                }`}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Small reusable pieces
+// ─────────────────────────────────────────────────────────────
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-[#E0DDD5] bg-white p-6">
+      <h2 className="mb-5 text-base font-extrabold text-[#1A1817]">{title}</h2>
+      <div className="space-y-5">{children}</div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  icon,
+  hint,
+  required,
+  children,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  hint?: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center gap-1.5 text-sm font-semibold text-[#1A1817]">
+        {icon && <span className="text-[#2A6558]">{icon}</span>}
+        {label}
+        {required && <span className="text-red-400 ml-0.5">*</span>}
+      </label>
+      {children}
+      {hint && <p className="text-xs text-[#7C7671]">{hint}</p>}
+    </div>
+  );
+}
+
+function Input({
+  type = "text",
+  ...rest
+}: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      type={type}
+      {...rest}
+      className={`w-full rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-4 py-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:bg-white focus:ring-2 focus:ring-[#2A6558]/10 placeholder:text-[#B0ABA5] ${rest.className ?? ""}`}
+    />
+  );
+}
+
+function Select({
+  children,
+  ...rest
+}: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...rest}
+      className={`w-full rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-4 py-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:bg-white focus:ring-2 focus:ring-[#2A6558]/10 ${rest.className ?? ""}`}
+    >
+      {children}
+    </select>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  bold,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2 border-b border-[#F0EEEA] last:border-0">
+      <span className="text-sm text-[#7C7671] shrink-0">{label}</span>
+      <span className={`text-sm text-right ${bold ? "font-extrabold text-[#2A6558] text-base" : "font-semibold text-[#1A1817]"}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function PayMethodCard({
+  selected,
+  onClick,
+  icon,
+  title,
+  desc,
+  badge,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  badge?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative flex flex-col gap-3 rounded-2xl border-2 p-5 text-left transition-all ${
+        selected
+          ? "border-[#2A6558] bg-[#EAF2F0] shadow-md"
+          : "border-[#E0DDD5] bg-white hover:border-[#2A6558]/50 hover:shadow-sm"
+      }`}
+    >
+      {badge && (
+        <span className="absolute right-4 top-4 rounded-full bg-[#2A6558]/10 px-2 py-0.5 text-[10px] font-bold text-[#2A6558]">
+          {badge}
+        </span>
+      )}
+      <div className="flex items-center justify-between">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white shadow-sm border border-[#E0DDD5]">
+          {icon}
+        </div>
+        <div
+          className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all ${
+            selected ? "border-[#2A6558] bg-[#2A6558]" : "border-[#D0CCC7]"
+          }`}
+        >
+          {selected && <Check size={11} className="text-white" />}
+        </div>
+      </div>
+      <div>
+        <p className="font-bold text-[#1A1817]">{title}</p>
+        <p className="mt-0.5 text-xs text-[#7C7671] leading-relaxed">{desc}</p>
+      </div>
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main Page
+// ─────────────────────────────────────────────────────────────
+export default function ReserveVenuePage() {
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const rawId = params.venueId;
+  const venueId = typeof rawId === "string" ? rawId : Array.isArray(rawId) ? rawId[0] : "";
+
+  // Query params for pre-fill
+  const eventId = searchParams.get("event");
+  const qDate = searchParams.get("date") ?? "";
+  const qTime = searchParams.get("time") ?? "10:00";
+  const qDuration = parseInt(searchParams.get("duration") ?? "4", 10);
+  const qGuests = searchParams.get("guests") ?? "";
+
+  // Back links
+  const backToVenueHref = eventId
+    ? `/venue/${venueId}?event=${encodeURIComponent(eventId)}`
+    : `/venue/${venueId}`;
+  const backToRecsHref = eventId
+    ? `${ROUTES.recommendations}?event=${encodeURIComponent(eventId)}`
+    : ROUTES.recommendations;
+
+  // Venue loading
+  const [venue, setVenue] = useState<VenueRow | null>(null);
+  const [venueLoading, setVenueLoading] = useState(true);
+  const [venueError, setVenueError] = useState<string | null>(null);
+
+  // ── Step 1 state ──
+  const [eventDate, setEventDate] = useState(qDate);
+  const [startTime, setStartTime] = useState(qTime || "10:00");
+  const [durationHours, setDurationHours] = useState(isNaN(qDuration) ? 4 : qDuration);
+  const [guestCount, setGuestCount] = useState(qGuests);
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [specialRequests, setSpecialRequests] = useState("");
+
+  // ── Step 2 state ──
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [gcashNumber, setGcashNumber] = useState("");
+
+  // ── Flow state ──
+  const [step, setStep] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+
+  // ── Success state ──
+  const [reservationId, setReservationId] = useState<string | null>(null);
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [paymentRef, setPaymentRef] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const guestsNum = parseInt(guestCount, 10);
+  const totalAmount = venue && !isNaN(guestsNum) && guestsNum > 0
+    ? guestsNum * venue.price_per_head
+    : 0;
+
+  // Load venue
+  useEffect(() => {
+    if (!venueId) { setVenueError("Invalid venue."); setVenueLoading(false); return; }
+    let active = true;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("venues")
+        .select("id,name,type,address,city,area,capacity,price_per_head,rating,review_count,setting,tags,description,image_color")
+        .eq("id", venueId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!active) return;
+      if (error || !data) { setVenueError("Venue not found."); setVenueLoading(false); return; }
+      setVenue(data as VenueRow);
+      setVenueLoading(false);
+    })();
+    return () => { active = false; };
+  }, [venueId]);
+
+  // ── Step 1 submit → create reservation ──
+  const handleStep1 = async () => {
+    setFieldError(null);
+
+    if (!eventDate) { setFieldError("Please pick the date of your event."); return; }
+    if (eventDate < today()) { setFieldError("The event date can't be in the past. Please choose a future date."); return; }
+    if (!guestCount || isNaN(guestsNum) || guestsNum < 1) {
+      setFieldError("Please enter how many guests will be attending."); return;
+    }
+    if (venue && guestsNum > venue.capacity) {
+      setFieldError(`This venue can only accommodate up to ${venue.capacity.toLocaleString()} guests. Please lower your guest count or choose a bigger venue.`);
+      return;
+    }
+    if (!contactName.trim()) { setFieldError("Please enter the full name of the reservation holder."); return; }
+    if (!contactPhone.trim()) { setFieldError("Please enter a Philippine mobile number (e.g. 0917-123-4567)."); return; }
+    const digits = contactPhone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setFieldError("That doesn't look like a valid number. Philippine mobile numbers are 11 digits (e.g. 0917-123-4567).");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          venueId,
+          eventId: eventId ?? null,
+          eventDate,
+          startTime,
+          durationHours,
+          guestCount: guestsNum,
+          pricePerHead: venue!.price_per_head,
+          totalAmount,
+          contactName: contactName.trim(),
+          contactPhone: contactPhone.trim(),
+          specialRequests: specialRequests.trim(),
+          paymentMethod,
+        }),
+      });
+
+      const json = (await res.json()) as {
+        reservationId?: string;
+        referenceNumber?: string;
+        conflict?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok) {
+        setFieldError(json.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      setReservationId(json.reservationId ?? null);
+      setReferenceNumber(json.referenceNumber ?? "");
+      setStep(2);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      setFieldError("Network error. Please check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ── Step 2 submit → confirm payment ──
+  const handlePayment = async () => {
+    setFieldError(null);
+
+    if (paymentMethod === "gcash") {
+      const d = gcashNumber.replace(/\D/g, "");
+      if (d.length < 10) {
+        setFieldError("Please enter the mobile number linked to your GCash account (e.g. 0917-123-4567).");
+        return;
+      }
+    }
+    if (!reservationId) { setFieldError("Missing reservation ID. Please go back and try again."); return; }
+
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/reservations/${reservationId}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gcashNumber }),
+      });
+
+      const json = (await res.json()) as {
+        success?: boolean;
+        paymentReference?: string;
+        error?: string;
+      };
+
+      if (!res.ok) { setFieldError(json.error ?? "Payment failed. Please try again."); return; }
+
+      setPaymentRef(json.paymentReference ?? "");
+      setStep(3);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      setFieldError("Network error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCopyRef = () => {
+    void navigator.clipboard.writeText(referenceNumber).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const handleGoBack = () => {
+    setFieldError(null);
+    setStep((s) => s - 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // ── Loading / error screens ──
+  if (venueLoading) {
+    return (
+      <AppShell>
+        <main className="flex min-h-[60vh] items-center justify-center">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#2A6558] border-t-transparent" />
+        </main>
+      </AppShell>
+    );
+  }
+
+  if (!venue || venueError) {
+    return (
+      <AppShell>
+        <main className="mx-auto w-full max-w-2xl px-6 py-12 text-center">
+          <div className="rounded-2xl border border-[#E0DDD5] bg-white p-10">
+            <p className="text-lg font-extrabold text-[#1A1817]">Venue not found</p>
+            <p className="mt-1 text-sm text-[#7C7671]">{venueError}</p>
+            <Link href={backToRecsHref} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#2A6558] px-5 py-2.5 text-sm font-semibold text-white">
+              Back to Recommendations
+            </Link>
+          </div>
+        </main>
+      </AppShell>
+    );
+  }
+
+  const bannerBg = venue.image_color || "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)";
+
+  // ─────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────
+  return (
+    <AppShell>
+      <main className="mx-auto w-full max-w-2xl px-4 py-10 page-fade">
+
+        {/* Back link */}
+        <Link
+          href={backToVenueHref}
+          className="mb-6 inline-flex items-center gap-2 text-sm text-[#7C7671] hover:text-[#2A6558] transition-colors"
+        >
+          <ArrowLeft size={15} /> Back to Venue
+        </Link>
+
+        {/* Page title */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[#1A1817]">
+            {step === 3
+              ? paymentMethod === "gcash"
+                ? "Booking Confirmed \uD83C\uDF89"
+                : "Venue Slot Reserved \uD83D\uDCC5"
+              : "Reserve a Venue"}
+          </h1>
+          <p className="mt-1 text-sm text-[#7C7671]">
+            {step === 3
+              ? paymentMethod === "gcash"
+                ? "Your GCash payment was received and your venue is fully confirmed."
+                : "Your slot is held. Bring the full cash amount on your event day to complete the booking."
+              : "Fill in your details below and complete payment to lock in your spot."}
+          </p>
+        </div>
+
+        {/* Step bar */}
+        <StepBar current={step} />
+
+        <div className="space-y-5">
+
+          {/* ────────────────── Venue preview card (steps 1 & 2) ────────────────── */}
+          {step < 3 && (
+            <div className="overflow-hidden rounded-2xl border border-[#E0DDD5] bg-white">
+              <div className="h-24" style={{ background: bannerBg }} />
+              <div className="flex items-start justify-between gap-4 px-5 py-4">
+                <div className="min-w-0">
+                  <h2 className="truncate font-extrabold text-[#1A1817]">{venue.name}</h2>
+                  <p className="mt-0.5 text-xs text-[#7C7671]">{venue.type}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#7C7671]">
+                    <span className="flex items-center gap-1">
+                      <MapPin size={11} className="text-[#2A6558]" /> {venue.address}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Users size={11} /> Up to {venue.capacity.toLocaleString()} guests
+                    </span>
+                  </div>
+                </div>
+                <div className="shrink-0 flex items-center gap-1 rounded-full bg-[#F8F6F1] px-3 py-1.5 text-sm font-semibold text-[#1A1817]">
+                  <Star size={13} className="fill-amber-400 text-amber-400" />
+                  {venue.rating.toFixed(1)}
+                </div>
+              </div>
+              <div className="border-t border-[#F0EEEA] px-5 py-3 flex items-center justify-between">
+                <span className="text-xs text-[#7C7671]">Price per head</span>
+                <span className="text-sm font-bold text-[#2A6558]">{formatPeso(venue.price_per_head)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════ STEP 1 — Your Details ══════════════════ */}
+          {step === 1 && (
+            <>
+              {/* Live cost preview */}
+              {totalAmount > 0 && (
+                <div className="rounded-2xl border border-[#C8E0DA] bg-[#EAF2F0] px-5 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-[#2A6558] font-semibold">Estimated Total</p>
+                    <p className="text-2xl font-extrabold text-[#1A1817]">{formatPeso(totalAmount)}</p>
+                  </div>
+                  <div className="text-right text-xs text-[#7C7671]">
+                    <p>{formatPeso(venue.price_per_head)} × {guestsNum} guests</p>
+                    <p className="mt-0.5 text-[#2A6558] font-semibold">Updates as you type</p>
+                  </div>
+                </div>
+              )}
+
+              <Section title="When is your event?">
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Event Date" icon={<Calendar size={15} />} required>
+                    <Input
+                      type="date"
+                      min={today()}
+                      value={eventDate}
+                      onChange={(e) => setEventDate(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Start Time" icon={<Clock size={15} />} required>
+                    <Select value={startTime} onChange={(e) => setStartTime(e.target.value)}>
+                      {TIME_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+                <Field
+                  label="How long will the event run?"
+                  icon={<Clock size={15} />}
+                  hint="Choose the total number of hours you'll need the venue."
+                  required
+                >
+                  <div className="grid grid-cols-4 gap-2">
+                    {DURATION_OPTIONS.map((o) => (
+                      <button
+                        key={o.value}
+                        type="button"
+                        onClick={() => setDurationHours(o.value)}
+                        className={`rounded-xl border py-2.5 text-sm font-semibold transition-all ${
+                          durationHours === o.value
+                            ? "border-[#2A6558] bg-[#2A6558] text-white"
+                            : "border-[#E0DDD5] bg-white text-[#44504C] hover:border-[#2A6558]/50"
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </Section>
+
+              <Section title="How many guests?">
+                <Field
+                  label="Number of Guests"
+                  icon={<Users size={15} />}
+                  hint={`Maximum capacity for this venue is ${venue.capacity.toLocaleString()} guests.`}
+                  required
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={venue.capacity}
+                    placeholder={`e.g. 100 (max ${venue.capacity.toLocaleString()})`}
+                    value={guestCount}
+                    onChange={(e) => setGuestCount(e.target.value)}
+                  />
+                </Field>
+                {/* Capacity bar */}
+                {!isNaN(guestsNum) && guestsNum > 0 && (
+                  <div>
+                    <div className="h-2 w-full rounded-full bg-[#F0EEEA] overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          guestsNum > venue.capacity ? "bg-red-400" : "bg-[#2A6558]"
+                        }`}
+                        style={{ width: `${Math.min(100, (guestsNum / venue.capacity) * 100)}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[#7C7671]">
+                      {guestsNum > venue.capacity
+                        ? `⚠️ Exceeds capacity by ${(guestsNum - venue.capacity).toLocaleString()} guests`
+                        : `${guestsNum.toLocaleString()} of ${venue.capacity.toLocaleString()} seats used (${Math.round((guestsNum / venue.capacity) * 100)}%)`}
+                    </p>
+                  </div>
+                )}
+              </Section>
+
+              <Section title="Contact Information">
+                <p className="text-sm text-[#7C7671] -mt-2">
+                  We&apos;ll use these details to confirm your reservation.
+                </p>
+                <Field
+                  label="Full Name"
+                  icon={<User size={15} />}
+                  hint="Enter your complete name as the reservation holder."
+                  required
+                >
+                  <Input
+                    placeholder="e.g. Juan dela Cruz"
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Mobile Number"
+                  icon={<Phone size={15} />}
+                  hint="Philippine mobile number, e.g. 0917-123-4567"
+                  required
+                >
+                  <Input
+                    type="tel"
+                    placeholder="09XX-XXX-XXXX"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                  />
+                </Field>
+              </Section>
+
+              <Section title="Special Requests">
+                <Field
+                  label="Anything the venue should know?"
+                  icon={<MessageSquare size={15} />}
+                  hint="Optional — e.g. dietary needs, setup requirements, accessibility needs."
+                >
+                  <textarea
+                    rows={4}
+                    placeholder="e.g. Need a vegetarian menu option and a projector screen set up facing the main entrance."
+                    value={specialRequests}
+                    onChange={(e) => setSpecialRequests(e.target.value)}
+                    className="w-full rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-4 py-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:bg-white focus:ring-2 focus:ring-[#2A6558]/10 placeholder:text-[#B0ABA5] resize-none"
+                  />
+                </Field>
+              </Section>
+            </>
+          )}
+
+          {/* ══════════════════ STEP 2 — Payment ══════════════════ */}
+          {step === 2 && (
+            <>
+              {/* Booking summary */}
+              <Section title="Booking Summary">
+                <SummaryRow label="Venue" value={venue.name} />
+                <SummaryRow label="Date" value={formatDate(eventDate)} />
+                <SummaryRow label="Start Time" value={timeLabel(startTime)} />
+                <SummaryRow label="Duration" value={`${durationHours} hour${durationHours > 1 ? "s" : ""}`} />
+                <SummaryRow label="Guests" value={`${guestsNum.toLocaleString()} people`} />
+                <SummaryRow label="Contact" value={contactName} />
+                <SummaryRow label="Phone" value={contactPhone} />
+                {specialRequests && <SummaryRow label="Requests" value={specialRequests} />}
+                <SummaryRow label="Total Amount" value={formatPeso(totalAmount)} bold />
+              </Section>
+
+              {/* Payment method */}
+              <Section title="How would you like to pay?">
+                <p className="text-sm text-[#7C7671] -mt-2">
+                  Your booking slot is held for <strong className="text-[#1A1817]">30 minutes</strong>. Complete payment before then to keep your reservation.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <PayMethodCard
+                    selected={paymentMethod === "cash"}
+                    onClick={() => setPaymentMethod("cash")}
+                    icon={<Banknote size={22} className="text-[#2A6558]" />}
+                    title="Pay with Cash"
+                    desc="No payment now. Just bring the full amount on the day of your event."
+                    badge="No online payment"
+                  />
+                  <PayMethodCard
+                    selected={paymentMethod === "gcash"}
+                    onClick={() => setPaymentMethod("gcash")}
+                    icon={<Smartphone size={22} className="text-blue-500" />}
+                    title="Pay via GCash"
+                    desc="Pay right now using your GCash mobile wallet. Instant confirmation."
+                    badge="Instant"
+                  />
+                </div>
+
+                {paymentMethod === "gcash" && (
+                  <Field
+                    label="Your GCash Number"
+                    icon={<Smartphone size={15} />}
+                    hint="Enter the mobile number registered to your GCash account."
+                    required
+                  >
+                    <Input
+                      type="tel"
+                      placeholder="09XX-XXX-XXXX"
+                      value={gcashNumber}
+                      onChange={(e) => setGcashNumber(e.target.value)}
+                    />
+                  </Field>
+                )}
+
+                {paymentMethod === "cash" && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 leading-relaxed">
+                    <strong>Important:</strong> By clicking "Confirm Reservation" you agree to pay{" "}
+                    <strong>{formatPeso(totalAmount)}</strong> in cash on your event date. Failure to pay on the day may result in cancellation of your booking.
+                  </div>
+                )}
+              </Section>
+            </>
+          )}
+
+          {/* ══════════════════ STEP 3 — Confirmed ══════════════════ */}
+          {step === 3 && (
+            <>
+              <div className={`rounded-2xl border p-8 text-center ${
+                paymentMethod === "gcash"
+                  ? "border-[#C8E0DA] bg-[#EAF2F0]"
+                  : "border-amber-200 bg-amber-50"
+              }`}>
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white shadow">
+                  <CheckCircle2 size={34} className={paymentMethod === "gcash" ? "text-[#2A6558]" : "text-amber-500"} />
+                </div>
+                <h2 className="text-xl font-extrabold text-[#1A1817]">
+                  {paymentMethod === "gcash" ? "Your venue is confirmed!" : "Your slot is reserved!"}
+                </h2>
+                <p className="mt-2 text-sm text-[#7C7671]">
+                  <strong className="text-[#1A1817]">{venue.name}</strong>{" "}
+                  {paymentMethod === "gcash"
+                    ? <>is fully booked for <strong className="text-[#1A1817]">{formatDate(eventDate)}</strong>. GCash payment confirmed.</>
+                    : <>is held for <strong className="text-[#1A1817]">{formatDate(eventDate)}</strong>. Pay cash on arrival to confirm.</>}
+                </p>
+              </div>
+
+              {/* Reference number */}
+              <div className="rounded-2xl border border-[#E0DDD5] bg-white p-6 text-center">
+                <p className="text-xs font-semibold uppercase tracking-widest text-[#7C7671]">Your Booking Reference</p>
+                <div className="mt-3 flex items-center justify-center gap-3">
+                  <span className="text-3xl font-extrabold tracking-[0.15em] text-[#2A6558]">
+                    {referenceNumber}
+                  </span>
+                  <button
+                    onClick={handleCopyRef}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] text-[#7C7671] hover:bg-[#EAF2F0] hover:text-[#2A6558] transition-colors"
+                    title="Copy reference number"
+                  >
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-[#7C7671]">Screenshot or copy this number for your records.</p>
+              </div>
+
+              {/* Full booking recap */}
+              <Section title="Booking Recap">
+                <SummaryRow label="Venue" value={venue.name} />
+                <SummaryRow label="Date" value={formatDate(eventDate)} />
+                <SummaryRow label="Time" value={`${timeLabel(startTime)} · ${durationHours}h`} />
+                <SummaryRow label="Guests" value={`${guestsNum.toLocaleString()} people`} />
+                <SummaryRow
+                  label="Payment"
+                  value={paymentMethod === "gcash" ? `GCash · ${paymentRef}` : "Cash on event day"}
+                />
+                <SummaryRow label="Total Amount" value={formatPeso(totalAmount)} bold />
+              </Section>
+
+              {/* What's next */}
+              <div className="rounded-2xl border border-[#E0DDD5] bg-white p-6">
+                <h3 className="mb-4 font-extrabold text-[#1A1817]">What happens next?</h3>
+                <ol className="space-y-3 text-sm text-[#44504C]">
+                  {paymentMethod === "cash" ? (
+                    <>
+                      <li className="flex items-start gap-3">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">1</span>
+                        Your slot is <strong>tentatively held</strong> under reference <strong>{referenceNumber}</strong>. Status stays <em>pending</em> until you pay on arrival.
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">2</span>
+                        On <strong>{formatDate(eventDate)}</strong>, bring <strong>{formatPeso(totalAmount)}</strong> in cash. Hand it to the venue to officially confirm your booking.
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">3</span>
+                        Show reference <strong>{referenceNumber}</strong> when you arrive. <strong>No payment = no confirmed booking</strong>, so don&apos;t forget!
+                      </li>
+                    </>
+                  ) : (
+                    <>
+                      <li className="flex items-start gap-3">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">1</span>
+                        GCash payment of <strong>{formatPeso(totalAmount)}</strong> has been <strong>received</strong>. Payment ref: <strong>{paymentRef}</strong>.
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">2</span>
+                        Your venue is fully <strong>confirmed</strong>. No further action needed for payment.
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">3</span>
+                        On <strong>{formatDate(eventDate)}</strong>, present reference <strong>{referenceNumber}</strong> upon arrival.
+                      </li>
+                    </>
+                  )}
+                </ol>
+              </div>
+
+              {/* CTA */}
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href={ROUTES.reservations}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3.5 text-sm font-semibold text-white hover:bg-[#215249] transition-colors"
+                >
+                  <CalendarCheck size={15} /> View My Reservations
+                </Link>
+                <Link
+                  href={backToRecsHref}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#E0DDD5] bg-white py-3.5 text-sm font-semibold text-[#1A1817] hover:bg-[#F8F6F1] transition-colors"
+                >
+                  Back to Recommendations
+                  <ArrowRight size={15} />
+                </Link>
+              </div>
+            </>
+          )}
+
+          {/* Error banner */}
+          {fieldError && (
+            <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-500" />
+              <p className="text-sm text-red-700 leading-relaxed">{fieldError}</p>
+            </div>
+          )}
+
+          {/* Footer nav */}
+          {step === 1 && (
+            <div className="flex gap-3">
+              <Link
+                href={backToVenueHref}
+                className="flex items-center gap-2 rounded-xl border border-[#E0DDD5] bg-white px-5 py-3.5 text-sm font-semibold text-[#7C7671] hover:bg-[#F8F6F1] transition-colors"
+              >
+                <ArrowLeft size={15} /> Cancel
+              </Link>
+              <button
+                type="button"
+                onClick={handleStep1}
+                disabled={busy}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3.5 text-sm font-semibold text-white hover:bg-[#215249] disabled:opacity-60 transition-colors"
+              >
+                {busy ? <Loader2 size={15} className="animate-spin" /> : null}
+                {busy ? "Checking availability…" : "Continue to Payment"}
+                {!busy && <ArrowRight size={15} />}
+              </button>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleGoBack}
+                disabled={busy}
+                className="flex items-center gap-2 rounded-xl border border-[#E0DDD5] bg-white px-5 py-3.5 text-sm font-semibold text-[#7C7671] hover:bg-[#F8F6F1] disabled:opacity-60 transition-colors"
+              >
+                <ArrowLeft size={15} /> Back
+              </button>
+              <button
+                type="button"
+                onClick={handlePayment}
+                disabled={busy}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3.5 text-sm font-semibold text-white hover:bg-[#215249] disabled:opacity-60 transition-colors"
+              >
+                {busy ? <Loader2 size={15} className="animate-spin" /> : null}
+                {busy
+                  ? "Processing…"
+                  : paymentMethod === "gcash"
+                  ? "Confirm & Pay via GCash"
+                  : "Confirm Reservation"}
+                {!busy && <ArrowRight size={15} />}
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
+    </AppShell>
+  );
+}

@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import Modal from "@/components/Modal";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useToast } from "@/lib/ToastContext";
+import { supabase } from "@/lib/supabase/client";
 import type { SavedEvent } from "@/lib/types";
 import {
   Plus,
@@ -24,8 +25,9 @@ import {
   PieChart,
   Filter,
   Search,
+  CalendarCheck,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ─── Helpers ──────────────────────────────────────────────
 const statusColor: Record<string, string> = {
@@ -229,12 +231,51 @@ function CostAnalysis({ events }: { events: SavedEvent[] }) {
 }
 
 // ─── Main Page ────────────────────────────────────────────
+// Shape of what we look up per event
+interface EventReservation {
+  referenceNumber: string;
+  status: "pending_payment" | "confirmed";
+  venueName: string;
+}
+
 export default function EventsPage() {
   const { events, hydrated, deleteEvent } = useEventsContext();
   const { success, error } = useToast();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [eventToDelete, setEventToDelete] = useState<SavedEvent | null>(null);
+  const [eventReservations, setEventReservations] = useState<Record<string, EventReservation>>({});
+
+  // Load active reservation for each event
+  useEffect(() => {
+    if (!hydrated || events.length === 0) return;
+    const ids = events.map((e) => e.id).filter(Boolean);
+    if (ids.length === 0) return;
+    void (async () => {
+      const { data } = await supabase
+        .from("venue_reservations")
+        .select("event_id, reference_number, reservation_status, venues(name)")
+        .in("event_id", ids)
+        .neq("reservation_status", "cancelled");
+      if (!data) return;
+      const map: Record<string, EventReservation> = {};
+      for (const row of data as {
+        event_id: string | null;
+        reference_number: string;
+        reservation_status: string;
+        venues: { name: string } | { name: string }[] | null;
+      }[]) {
+        if (!row.event_id) continue;
+        const venueObj = Array.isArray(row.venues) ? row.venues[0] : row.venues;
+        map[row.event_id] = {
+          referenceNumber: row.reference_number,
+          status: row.reservation_status as "pending_payment" | "confirmed",
+          venueName: venueObj?.name ?? "Venue",
+        };
+      }
+      setEventReservations(map);
+    })();
+  }, [hydrated, events]);
 
   const filtered = events.filter((e) => {
     const matchSearch =
@@ -407,7 +448,20 @@ export default function EventsPage() {
                     </div>
                   </div>
 
-                  {/* Footer row */}
+                  {/* Reservation status banner */}
+                  {eventReservations[ev.id] && (
+                    <div className={`mt-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${
+                      eventReservations[ev.id].status === "confirmed"
+                        ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
+                    }`}>
+                      <CalendarCheck size={13} />
+                      {eventReservations[ev.id].status === "confirmed"
+                        ? <>Venue reserved &amp; confirmed — <span className="font-bold">{eventReservations[ev.id].venueName}</span> &nbsp;·&nbsp; Ref: <span className="tracking-wider">{eventReservations[ev.id].referenceNumber}</span></>
+                        : <>Venue reserved (pending cash payment) — <span className="font-bold">{eventReservations[ev.id].venueName}</span> &nbsp;·&nbsp; Ref: <span className="tracking-wider">{eventReservations[ev.id].referenceNumber}</span></>}
+                    </div>
+                  )}
+
                   <div className="mt-4 flex items-center justify-between border-t border-[#F0EDEA] pt-3">
                     <p className="text-[10px] text-[#7C7671]">
                       Created{" "}
@@ -425,12 +479,21 @@ export default function EventsPage() {
                         <Trash2 size={13} />
                         Delete
                       </button>
-                      <Link
-                        href={`/recommendations?event=${ev.id}`}
-                        className="flex items-center gap-1.5 rounded-lg bg-[#EAF2F0] px-3 py-1.5 text-xs font-semibold text-[#2A6558] transition hover:bg-[#2A6558] hover:text-white"
-                      >
-                        <Sparkles size={12} /> View Venues
-                      </Link>
+                      {eventReservations[ev.id] ? (
+                        <Link
+                          href="/reservations"
+                          className="flex items-center gap-1.5 rounded-lg bg-[#2A6558] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#215249]"
+                        >
+                          <CalendarCheck size={12} /> My Reservations
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/recommendations?event=${ev.id}`}
+                          className="flex items-center gap-1.5 rounded-lg bg-[#EAF2F0] px-3 py-1.5 text-xs font-semibold text-[#2A6558] transition hover:bg-[#2A6558] hover:text-white"
+                        >
+                          <Sparkles size={12} /> View Venues
+                        </Link>
+                      )}
                       <Link
                         href={`/events/${ev.id}`}
                         className="flex items-center gap-1.5 rounded-lg bg-[#1A1817] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2A6558]"

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
-const MAX_VENUES_PER_REQUEST = 12;
+const MAX_VENUES_PER_REQUEST = 5;
 
 interface EventInsightInput {
   id: string;
@@ -249,23 +249,38 @@ function tryParseJson(text: string): InsightsResponsePayload | null {
 }
 
 function buildPrompt(payload: InsightsRequestPayload): string {
+  const ev = payload.event;
+  const budget =
+    ev.budgetType === "per-head"
+      ? `\u20b1${ev.budgetMin}\u2013\u20b1${ev.budgetMax}/head`
+      : `\u20b1${ev.budgetMin}\u2013\u20b1${ev.budgetMax} total`;
+
+  const compactEvent = {
+    name: ev.eventName,
+    occasion: ev.occasion,
+    pax: ev.pax,
+    budget,
+    city: ev.city,
+    setting: ev.setting,
+    catering: ev.catering,
+    tone: ev.toneKeywords || undefined,
+  };
+
+  const compactVenues = payload.venues.map((v) => ({
+    id: v.id,
+    name: v.name,
+    type: v.type,
+    city: v.city,
+    cap: v.capacity,
+    php: v.pricePerHead,
+    match: v.match,
+    tags: v.tags.slice(0, 3),
+  }));
+
   return [
-    "You are an expert event planner assistant.",
-    "Analyze the event and venue candidates and return only JSON with this shape:",
-    '{"summary":"...","insights":[{"id":"venue-id","insight":"..."}]}',
-    "Requirements:",
-    "- Include exactly one insight for each venue id provided.",
-    "- Each insight is 18 to 34 words, one sentence, no markdown.",
-    "- Mention at least two concrete fit factors (budget, capacity, location, tags, setting, or catering).",
-    "- If there is a mismatch, describe the tradeoff clearly and constructively.",
-    "- Vary wording between venues and avoid repetitive phrases.",
-    "- Summary is one sentence under 28 words about the overall ranking logic.",
-    "",
-    "Event profile JSON:",
-    JSON.stringify(payload.event),
-    "",
-    "Venue candidates JSON:",
-    JSON.stringify(payload.venues),
+    `Event: ${JSON.stringify(compactEvent)}`,
+    `Venues: ${JSON.stringify(compactVenues)}`,
+    `Return JSON {"summary":"<25 words>","insights":[{"id":"...","insight":"<20-28 words, mention 2 fit factors: budget/capacity/location/style>"}]}. One entry per venue id. No extra keys.`,
   ].join("\n");
 }
 
@@ -308,17 +323,17 @@ async function requestGroq(
   useJsonMode: boolean
 ): Promise<
   | { ok: true; json: GroqChatCompletionResponse; model: string }
-  | { ok: false; status: number; message: string; model: string }
+  | { ok: false; status: number; message: string; model: string; retryAfterMs: number }
 > {
   const body: Record<string, unknown> = {
     model,
     temperature: 0.45,
-    max_tokens: 1024,
+    max_tokens: 280,
     messages: [
       {
         role: "system",
         content:
-          "You are an event-planning assistant. Return valid JSON only with keys: summary, insights.",
+          "Return valid JSON with keys: summary (string), insights (array of {id,insight}).",
       },
       {
         role: "user",
@@ -343,7 +358,8 @@ async function requestGroq(
 
   if (!response.ok) {
     const message = await readGroqError(response);
-    return { ok: false, status: response.status, message, model };
+    const retryAfterSec = parseFloat(response.headers.get("retry-after") ?? "0") || 0;
+    return { ok: false, status: response.status, message, model, retryAfterMs: Math.ceil(retryAfterSec * 1000) };
   }
 
   const json = (await response.json()) as GroqChatCompletionResponse;
@@ -404,13 +420,23 @@ export async function POST(request: NextRequest) {
     });
 
     if (primaryAttempt.status === 429) {
+      // Groq returns a Retry-After header — honour it with a small buffer,
+      // then make one automatic retry before giving up.
+      const waitMs = Math.min((primaryAttempt.retryAfterMs || 8000) + 600, 13000);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      const retryAttempt = await requestGroq(groqApiKey, model, prompt, true);
+      if (retryAttempt.ok) {
+        completion = retryAttempt.json;
+        break;
+      }
+      failures.push({ model, status: retryAttempt.status, message: retryAttempt.message });
       return NextResponse.json(
-        { error: `Groq quota exceeded. ${primaryAttempt.message}` },
+        { error: `Groq quota exceeded after retry. ${retryAttempt.message}` },
         { status: 429 }
       );
     }
 
-    // Some models may reject JSON mode, so retry once without response_format.
+    // Some models may reject JSON mode — retry once without response_format.
     const plainAttempt = await requestGroq(groqApiKey, model, prompt, false);
     if (plainAttempt.ok) {
       completion = plainAttempt.json;
@@ -424,8 +450,16 @@ export async function POST(request: NextRequest) {
     });
 
     if (plainAttempt.status === 429) {
+      const waitMs = Math.min((plainAttempt.retryAfterMs || 8000) + 600, 13000);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      const retryPlain = await requestGroq(groqApiKey, model, prompt, false);
+      if (retryPlain.ok) {
+        completion = retryPlain.json;
+        break;
+      }
+      failures.push({ model, status: retryPlain.status, message: retryPlain.message });
       return NextResponse.json(
-        { error: `Groq quota exceeded. ${plainAttempt.message}` },
+        { error: `Groq quota exceeded after retry. ${retryPlain.message}` },
         { status: 429 }
       );
     }

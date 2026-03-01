@@ -13,6 +13,7 @@ import {
   Users,
   DollarSign,
   Tag,
+  CalendarCheck,
 } from "lucide-react";
 
 interface VenueDetailsRow {
@@ -53,6 +54,14 @@ export default function VenueDetailPage() {
   const [loading, setLoading] = useState(hasVenueId);
   const [venue, setVenue] = useState<VenueDetailsRow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isReserved, setIsReserved] = useState(false);
+  const [reservedRef, setReservedRef] = useState<string | null>(null);
+
+  // Pre-fill values loaded from the linked event
+  const [prefillDate, setPrefillDate] = useState<string | undefined>();
+  const [prefillStartTime, setPrefillStartTime] = useState<string | undefined>();
+  const [prefillDurationHours, setPrefillDurationHours] = useState<number | undefined>();
+  const [prefillGuestCount, setPrefillGuestCount] = useState<number | undefined>();
 
   useEffect(() => {
     if (!venueId) return;
@@ -63,6 +72,7 @@ export default function VenueDetailPage() {
       setLoading(true);
       setLoadError(null);
 
+      // Load venue details
       const { data, error } = await supabase
         .from("venues")
         .select(
@@ -89,13 +99,52 @@ export default function VenueDetailPage() {
       }
 
       setVenue(data as VenueDetailsRow);
+
+      // If we have an event id, load its details for pre-fill and check reservation
+      if (eventId && active) {
+        const { data: eventData } = await supabase
+          .from("events")
+          .select("event_date,start_time,duration_hours,pax")
+          .eq("id", eventId)
+          .maybeSingle();
+
+        if (!active) return;
+
+        if (eventData) {
+          setPrefillDate((eventData as { event_date: string }).event_date || undefined);
+          setPrefillStartTime((eventData as { start_time: string }).start_time || undefined);
+          setPrefillDurationHours((eventData as { duration_hours: number }).duration_hours);
+          setPrefillGuestCount((eventData as { pax: number }).pax);
+
+          // Check if this venue is already reserved for that event date
+          const eventDate = (eventData as { event_date: string }).event_date;
+          if (eventDate) {
+            const { data: existing } = await supabase
+              .from("venue_reservations")
+              .select("id, reference_number")
+              .eq("venue_id", venueId)
+              .eq("event_date", eventDate)
+              .neq("reservation_status", "cancelled")
+              .maybeSingle();
+
+            if (!active) return;
+            if (existing) {
+              setIsReserved(true);
+              setReservedRef(
+                (existing as { reference_number: string }).reference_number
+              );
+            }
+          }
+        }
+      }
+
       setLoading(false);
     })();
 
     return () => {
       active = false;
     };
-  }, [venueId]);
+  }, [venueId, eventId]);
 
   if (!hasVenueId) {
     return (
@@ -236,6 +285,57 @@ export default function VenueDetailPage() {
                 ))}
               </div>
             )}
+
+            {/* ── Reserve CTA ── */}
+            <div className="mt-6 border-t border-[#E0DDD5] pt-6">
+              {isReserved || reservedRef ? (
+                <div className="flex flex-col items-center gap-2 rounded-2xl bg-[#EAF2F0] border border-[#C8E0DA] p-5 text-center">
+                  <CalendarCheck size={28} className="text-[#2A6558]" />
+                  <p className="font-extrabold text-[#1A1817]">
+                    This venue is already reserved
+                  </p>
+                  <p className="text-sm text-[#7C7671]">
+                    Booking reference:{" "}
+                    <span className="font-bold tracking-wider text-[#2A6558]">
+                      {reservedRef}
+                    </span>
+                  </p>
+                  <Link
+                    href={ROUTES.reservations}
+                    className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-[#2A6558] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#215249] transition-colors"
+                  >
+                    View My Reservations
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-[#1A1817]">
+                      Ready to book this venue?
+                    </p>
+                    <p className="mt-0.5 text-sm text-[#7C7671]">
+                      Reserve it now — your slot is held for 30 minutes while you pay.
+                    </p>
+                  </div>
+                  <Link
+                    href={`/reserve/${venue.id}${(() => {
+                      const p = new URLSearchParams();
+                      if (eventId) p.set("event", eventId);
+                      if (prefillDate) p.set("date", prefillDate);
+                      if (prefillStartTime) p.set("time", prefillStartTime);
+                      if (prefillDurationHours) p.set("duration", String(prefillDurationHours));
+                      if (prefillGuestCount) p.set("guests", String(prefillGuestCount));
+                      const qs = p.toString();
+                      return qs ? `?${qs}` : "";
+                    })()}`}
+                    className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2A6558] px-6 py-3 text-sm font-semibold text-white shadow hover:bg-[#215249] transition-colors"
+                  >
+                    <CalendarCheck size={16} />
+                    Reserve This Venue
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>

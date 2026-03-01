@@ -8,8 +8,10 @@ export const ROUTES = {
   recommendations: "/recommendations",
   support: "/support",
   venue: "/venue",
+  reserve: "/reserve",
   profile: "/profile",
   settings: "/settings",
+  reservations: "/reservations",
 } as const;
 
 export const AUTH_ROUTE_PREFIXES = [ROUTES.login, ROUTES.register] as const;
@@ -20,8 +22,10 @@ export const PROTECTED_ROUTE_PREFIXES = [
   ROUTES.recommendations,
   ROUTES.support,
   ROUTES.venue,
+  ROUTES.reserve,
   ROUTES.profile,
   ROUTES.settings,
+  ROUTES.reservations,
 ] as const;
 
 export function pathMatchesPrefixes(

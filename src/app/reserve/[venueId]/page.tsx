@@ -27,6 +27,7 @@ import {
   Check,
   CalendarCheck,
   DollarSign,
+  Upload,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
@@ -319,6 +320,19 @@ export default function ReserveVenuePage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [gcashNumber, setGcashNumber] = useState("");
 
+  // ── Date availability (universal — blocks if anyone has this date) ──
+  const [dateConflict, setDateConflict] = useState(false);
+  const [checkingDate, setCheckingDate] = useState(false);
+
+  // ── Active reservation check (one reservation per event) ──
+  const [hasActiveReservation, setHasActiveReservation] = useState(false);
+  const [activeReservationVenue, setActiveReservationVenue] = useState<string | null>(null);
+  const [checkingActiveRes, setCheckingActiveRes] = useState(!!eventId);
+
+  // ── GCash proof of payment ──
+  const [proofImage, setProofImage] = useState<string | null>(null);
+  const [proofFileName, setProofFileName] = useState<string | null>(null);
+
   // ── Flow state ──
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -354,12 +368,66 @@ export default function ReserveVenuePage() {
     return () => { active = false; };
   }, [venueId]);
 
+  // Check date availability (universal — across all users)
+  useEffect(() => {
+    if (!venueId || !eventDate) { setDateConflict(false); return; }
+    let active = true;
+    setCheckingDate(true);
+    void (async () => {
+      const { data } = await supabase
+        .from("venue_reservations")
+        .select("id")
+        .eq("venue_id", venueId)
+        .eq("event_date", eventDate)
+        .neq("reservation_status", "cancelled")
+        .limit(1);
+      if (!active) return;
+      setDateConflict((data ?? []).length > 0);
+      setCheckingDate(false);
+    })();
+    return () => { active = false; };
+  }, [venueId, eventDate]);
+
+  // Check if user already has an active reservation for this event
+  useEffect(() => {
+    if (!eventId) { setHasActiveReservation(false); setCheckingActiveRes(false); return; }
+    let active = true;
+    setCheckingActiveRes(true);
+    void (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !active) return;
+      const { data } = await supabase
+        .from("venue_reservations")
+        .select("id, venue_id, venues(name)")
+        .eq("user_id", user.id)
+        .eq("event_id", eventId)
+        .neq("reservation_status", "cancelled")
+        .limit(1);
+      if (!active) return;
+      if (data && data.length > 0) {
+        setHasActiveReservation(true);
+        const venueJoin = (data[0] as Record<string, unknown>).venues;
+        const vName = Array.isArray(venueJoin)
+          ? (venueJoin[0] as Record<string, unknown>)?.name
+          : (venueJoin as Record<string, unknown>)?.name;
+        setActiveReservationVenue((vName as string) || "another venue");
+      } else {
+        setHasActiveReservation(false);
+        setActiveReservationVenue(null);
+      }
+      setCheckingActiveRes(false);
+    })();
+    return () => { active = false; };
+  }, [eventId]);
+
   // ── Step 1 submit → create reservation ──
   const handleStep1 = async () => {
     setFieldError(null);
 
     if (!eventDate) { setFieldError("Please pick the date of your event."); return; }
     if (eventDate < today()) { setFieldError("The event date can't be in the past. Please choose a future date."); return; }
+    if (dateConflict) { setFieldError("This venue is already reserved on this date by another booking. Please choose a different date."); return; }
+    if (hasActiveReservation) { setFieldError(`You already have an active reservation for this event at ${activeReservationVenue}. Please cancel it first before making a new reservation.`); return; }
     if (!guestCount || isNaN(guestsNum) || guestsNum < 1) {
       setFieldError("Please enter how many guests will be attending."); return;
     }
@@ -429,6 +497,10 @@ export default function ReserveVenuePage() {
         setFieldError("Please enter the mobile number linked to your GCash account (e.g. 0917-123-4567).");
         return;
       }
+      if (!proofImage) {
+        setFieldError("Please upload a screenshot of your GCash payment receipt before confirming your booking.");
+        return;
+      }
     }
     if (!reservationId) { setFieldError("Missing reservation ID. Please go back and try again."); return; }
 
@@ -437,7 +509,7 @@ export default function ReserveVenuePage() {
       const res = await fetch(`/api/reservations/${reservationId}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gcashNumber }),
+        body: JSON.stringify({ paymentMethod, gcashNumber, proofOfPayment: proofImage ? true : undefined }),
       });
 
       const json = (await res.json()) as {
@@ -570,6 +642,27 @@ export default function ReserveVenuePage() {
           {/* ══════════════════ STEP 1 — Your Details ══════════════════ */}
           {step === 1 && (
             <>
+              {/* Active reservation blocker */}
+              {hasActiveReservation && (
+                <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">
+                      You already have an active reservation
+                    </p>
+                    <p className="mt-1 text-xs text-amber-700 leading-relaxed">
+                      You&apos;ve already reserved <strong>{activeReservationVenue}</strong> for this event. To book a different venue, please cancel your existing reservation first.
+                    </p>
+                    <Link
+                      href={ROUTES.reservations}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-800 underline hover:text-amber-900"
+                    >
+                      Go to My Reservations
+                    </Link>
+                  </div>
+                </div>
+              )}
+
               {/* Live cost preview */}
               {totalAmount > 0 && (
                 <div className="rounded-2xl border border-[#C8E0DA] bg-[#EAF2F0] px-5 py-4 flex items-center justify-between">
@@ -593,6 +686,16 @@ export default function ReserveVenuePage() {
                       value={eventDate}
                       onChange={(e) => setEventDate(e.target.value)}
                     />
+                    {checkingDate && eventDate && (
+                      <p className="text-xs text-[#7C7671] flex items-center gap-1 mt-1">
+                        <Loader2 size={11} className="animate-spin" /> Checking availability…
+                      </p>
+                    )}
+                    {dateConflict && !checkingDate && (
+                      <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
+                        <AlertTriangle size={11} /> This date is already reserved by another booking. Pick a different date.
+                      </p>
+                    )}
                   </Field>
                   <Field label="Start Time" icon={<Clock size={15} />} required>
                     <Select value={startTime} onChange={(e) => setStartTime(e.target.value)}>
@@ -753,19 +856,103 @@ export default function ReserveVenuePage() {
                 </div>
 
                 {paymentMethod === "gcash" && (
-                  <Field
-                    label="Your GCash Number"
-                    icon={<Smartphone size={15} />}
-                    hint="Enter the mobile number registered to your GCash account."
-                    required
-                  >
-                    <Input
-                      type="tel"
-                      placeholder="09XX-XXX-XXXX"
-                      value={gcashNumber}
-                      onChange={(e) => setGcashNumber(e.target.value)}
-                    />
-                  </Field>
+                  <>
+                    <Field
+                      label="Your GCash Number"
+                      icon={<Smartphone size={15} />}
+                      hint="Enter the mobile number registered to your GCash account."
+                      required
+                    >
+                      <Input
+                        type="tel"
+                        placeholder="09XX-XXX-XXXX"
+                        value={gcashNumber}
+                        onChange={(e) => setGcashNumber(e.target.value)}
+                      />
+                    </Field>
+
+                    {/* GCash Payment Instructions & Proof Upload */}
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+                      <div>
+                        <p className="text-sm font-semibold text-blue-800 mb-1">
+                          How to complete your GCash payment
+                        </p>
+                        <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside leading-relaxed">
+                          <li>Open your <strong>GCash app</strong> and send <strong>{formatPeso(totalAmount)}</strong></li>
+                          <li>After paying, <strong>take a screenshot</strong> of the GCash payment confirmation/receipt</li>
+                          <li>Upload the screenshot below to complete your booking</li>
+                        </ol>
+                      </div>
+
+                      <div className="pt-1">
+                        <label className="text-sm font-semibold text-[#1A1817] flex items-center gap-1.5 mb-1.5">
+                          <Upload size={15} className="text-blue-500" />
+                          Payment Receipt Screenshot
+                          <span className="text-red-400 ml-0.5">*</span>
+                        </label>
+
+                        {!proofImage ? (
+                          <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-300 bg-white p-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-colors">
+                            <Upload size={24} className="text-blue-400" />
+                            <span className="text-sm font-medium text-blue-600">
+                              Click to upload receipt screenshot
+                            </span>
+                            <span className="text-xs text-[#7C7671]">JPG, PNG &mdash; Max 5 MB</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                if (!file.type.startsWith("image/")) {
+                                  setFieldError("Please upload an image file (JPG, PNG).");
+                                  return;
+                                }
+                                if (file.size > 5 * 1024 * 1024) {
+                                  setFieldError("Image must be under 5 MB.");
+                                  return;
+                                }
+                                setFieldError(null);
+                                setProofFileName(file.name);
+                                const reader = new FileReader();
+                                reader.onload = () => setProofImage(reader.result as string);
+                                reader.readAsDataURL(file);
+                              }}
+                            />
+                          </label>
+                        ) : (
+                          <div className="rounded-xl border border-blue-200 bg-white p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-[#2A6558] flex items-center gap-1">
+                                <CheckCircle2 size={12} /> Receipt uploaded
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => { setProofImage(null); setProofFileName(null); }}
+                                className="text-xs text-red-500 hover:text-red-700 font-medium"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={proofImage}
+                              alt="GCash receipt"
+                              className="w-full max-h-48 object-contain rounded-lg border border-[#E0DDD5]"
+                            />
+                            {proofFileName && (
+                              <p className="mt-1 text-xs text-[#7C7671] truncate">{proofFileName}</p>
+                            )}
+                          </div>
+                        )}
+
+                        <p className="mt-1.5 text-[11px] text-blue-600 leading-relaxed">
+                          Your booking will only be confirmed once you upload a valid receipt screenshot.
+                        </p>
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {paymentMethod === "cash" && (
@@ -908,7 +1095,7 @@ export default function ReserveVenuePage() {
               <button
                 type="button"
                 onClick={handleStep1}
-                disabled={busy}
+                disabled={busy || dateConflict || hasActiveReservation}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3.5 text-sm font-semibold text-white hover:bg-[#215249] disabled:opacity-60 transition-colors"
               >
                 {busy ? <Loader2 size={15} className="animate-spin" /> : null}
@@ -931,14 +1118,16 @@ export default function ReserveVenuePage() {
               <button
                 type="button"
                 onClick={handlePayment}
-                disabled={busy}
+                disabled={busy || (paymentMethod === "gcash" && !proofImage)}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3.5 text-sm font-semibold text-white hover:bg-[#215249] disabled:opacity-60 transition-colors"
               >
                 {busy ? <Loader2 size={15} className="animate-spin" /> : null}
                 {busy
                   ? "Processing…"
                   : paymentMethod === "gcash"
-                  ? "Confirm & Pay via GCash"
+                  ? proofImage
+                    ? "Confirm & Pay via GCash"
+                    : "Upload receipt to confirm"
                   : "Confirm Reservation"}
                 {!busy && <ArrowRight size={15} />}
               </button>

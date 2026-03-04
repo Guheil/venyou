@@ -251,6 +251,7 @@ export default function RegisterPage() {
       password: form.password,
       options: {
         data: metadataPayload,
+        emailRedirectTo: buildAuthRedirectUrl("/auth/callback"),
       },
     });
 

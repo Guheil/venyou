@@ -255,17 +255,6 @@ function buildPrompt(payload: InsightsRequestPayload): string {
       ? `\u20b1${ev.budgetMin}\u2013\u20b1${ev.budgetMax}/head`
       : `\u20b1${ev.budgetMin}\u2013\u20b1${ev.budgetMax} total`;
 
-  const compactEvent = {
-    name: ev.eventName,
-    occasion: ev.occasion,
-    pax: ev.pax,
-    budget,
-    city: ev.city,
-    setting: ev.setting,
-    catering: ev.catering,
-    tone: ev.toneKeywords || undefined,
-  };
-
   const compactVenues = payload.venues.map((v) => ({
     id: v.id,
     name: v.name,
@@ -278,10 +267,12 @@ function buildPrompt(payload: InsightsRequestPayload): string {
   }));
 
   return [
-    `Event: ${JSON.stringify(compactEvent)}`,
-    `Venues: ${JSON.stringify(compactVenues)}`,
-    `Return JSON {"summary":"<25 words>","insights":[{"id":"...","insight":"<20-28 words, mention 2 fit factors: budget/capacity/location/style>"}]}. One entry per venue id. No extra keys.`,
-  ].join("\n");
+    `You are a helpful venue advisor for someone planning a ${ev.occasion} called "${ev.eventName}" in ${ev.city}.`,
+    `Event details: ${ev.pax} guests, budget ${budget}, setting: ${ev.setting}, catering: ${ev.catering}${ev.toneKeywords ? `, vibe/theme: ${ev.toneKeywords}` : ""}.${ev.description ? ` Description: "${ev.description.slice(0, 200)}"` : ""}`,
+    `Venues to evaluate:\n${JSON.stringify(compactVenues)}`,
+    `For each venue, write a personalized insight (25-35 words) explaining how this venue specifically fits or doesn't fit their "${ev.eventName}" event. Compare the price to their ${budget} budget, assess if capacity suits ${ev.pax} guests, note location pros/cons in ${ev.city}, and mention which features match their ${ev.setting} setting and ${ev.occasion} style.`,
+    `Return JSON {"summary":"<30 words, personalized overview for their ${ev.occasion}>","insights":[{"id":"<venue id>","insight":"<25-35 words, specific to their event>"}]}. One entry per venue id. No extra keys.`,
+  ].join("\n\n");
 }
 
 function parseModelList(value: string | undefined): string[] {
@@ -328,12 +319,12 @@ async function requestGroq(
   const body: Record<string, unknown> = {
     model,
     temperature: 0.45,
-    max_tokens: 280,
+    max_tokens: 420,
     messages: [
       {
         role: "system",
         content:
-          "Return valid JSON with keys: summary (string), insights (array of {id,insight}).",
+          "You are a knowledgeable Philippines venue advisor. Given an event's details and a list of candidate venues, provide personalized insights explaining how each venue specifically fits the user's event needs. Focus on budget fit, capacity match, location convenience, and style alignment. Return valid JSON with keys: summary (string), insights (array of {id,insight}).",
       },
       {
         role: "user",

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
+import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase/client";
 import { ROUTES } from "@/lib/routes";
 import {
@@ -290,45 +291,66 @@ function DetailItem({
 // ─── Page ────────────────────────────────────────────────────
 
 export default function ReservationsPage() {
+  const { user, loading: authLoading } = useAuth();
   const { success, error: showError } = useToast();
   const [reservations, setReservations] = useState<VenueReservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "confirmed" | "pending_payment" | "cancelled">("all");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-
-    // First release any expired pending reservations
-    await supabase.rpc("release_expired_reservations").then(() => null, () => null);
-
-    const { data, error } = await supabase
-      .from("venue_reservations")
-      .select(
-        `id, created_at, updated_at, user_id, venue_id, event_id,
-         event_date, start_time, duration_hours,
-         guest_count, price_per_head, total_amount,
-         contact_name, contact_phone, special_requests,
-         payment_method, payment_status, gcash_number,
-         payment_reference, reservation_status,
-         reference_number, expires_at,
-         venues ( name, address, image_color, type )`
-      )
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      showError("Could not load reservations", "Please refresh the page.");
-      setLoading(false);
-      return;
-    }
-
-    const rows = (data ?? []) as unknown as VenueReservationRow[];
-    setReservations(rows.map(mapReservationRow));
-    setLoading(false);
-  }, [showError]);
+  const [reloadToken, setReloadToken] = useState(0);
+  const triggerReload = useCallback(() => {
+    setReloadToken((value) => value + 1);
+  }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (authLoading) return;
+
+    let active = true;
+
+    void (async () => {
+      if (!user) {
+        if (!active) return;
+        setReservations([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+
+      // First release any expired pending reservations
+      await supabase.rpc("release_expired_reservations").then(() => null, () => null);
+
+      const { data, error } = await supabase
+        .from("venue_reservations")
+        .select(
+          `id, created_at, updated_at, user_id, venue_id, event_id,
+           event_date, start_time, duration_hours,
+           guest_count, price_per_head, total_amount,
+           contact_name, contact_phone, special_requests,
+           payment_method, payment_status, gcash_number,
+           payment_reference, reservation_status,
+           reference_number, expires_at,
+           venues ( name, address, image_color, type )`
+        )
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (!active) return;
+
+      if (error) {
+        showError("Could not load reservations", "Please refresh the page.");
+        setLoading(false);
+        return;
+      }
+
+      const rows = (data ?? []) as unknown as VenueReservationRow[];
+      setReservations(rows.map(mapReservationRow));
+      setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, reloadToken, showError, user]);
 
   const handleCancel = async (id: string) => {
     const res = await fetch(`/api/reservations/${id}/cancel`, {
@@ -336,7 +358,7 @@ export default function ReservationsPage() {
     });
     if (res.ok) {
       success("Reservation cancelled", "Your booking has been cancelled.");
-      void load();
+      triggerReload();
     } else {
       showError("Could not cancel", "Please try again.");
     }
@@ -375,7 +397,7 @@ export default function ReservationsPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => void load()}
+              onClick={triggerReload}
               disabled={loading}
               className="flex items-center gap-1.5 rounded-xl border border-[#E0DDD5] bg-white px-3 py-2 text-sm font-medium text-[#7C7671] hover:bg-[#F8F6F1] transition-colors"
             >

@@ -1,4 +1,4 @@
-import { MapPin, Users, Star, DollarSign, ArrowRight, CalendarCheck } from "lucide-react";
+import { MapPin, Users, Star, DollarSign, ArrowRight, CalendarCheck, Sparkles, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 export interface Venue {
@@ -32,6 +32,12 @@ interface VenueCardProps {
   isReservedForDate?: boolean;
   /** Called after a successful reservation */
   onReserved?: (venueId: string, referenceNumber: string) => void;
+  /** Request AI insight generation for this venue */
+  onRequestAiInsight?: () => void;
+  /** Whether AI insight is currently loading for this venue */
+  aiInsightLoading?: boolean;
+  /** Whether AI insight has been loaded for this venue */
+  aiInsightLoaded?: boolean;
 }
 
 function buildReserveUrl(
@@ -61,6 +67,9 @@ export default function VenueCard({
   prefillDurationHours,
   prefillGuestCount,
   isReservedForDate,
+  onRequestAiInsight,
+  aiInsightLoading,
+  aiInsightLoaded,
 }: VenueCardProps) {
   const matchColor =
     venue.match >= 90
@@ -99,7 +108,7 @@ export default function VenueCard({
           {/* Reserved badge */}
           {showReservedBadge && (
             <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-[#2A6558] px-2.5 py-1 text-[11px] font-bold text-white shadow">
-              <CalendarCheck size={11} /> Reserved
+              <CalendarCheck size={11} /> RESERVED
             </span>
           )}
           {/* Tags */}
@@ -167,10 +176,36 @@ export default function VenueCard({
           </div>
 
           {/* AI note */}
-          <p className="mb-4 rounded-lg bg-[#EAF2F0] px-3 py-2.5 text-xs leading-relaxed text-[#215249] border border-[#C8E0DA]">
-            <span className="font-semibold">AI Insight: </span>
-            {venue.aiNote}
-          </p>
+          {aiInsightLoaded ? (
+            <p className="mb-4 rounded-lg bg-[#EAF2F0] px-3 py-2.5 text-xs leading-relaxed text-[#215249] border border-[#C8E0DA]">
+              <span className="font-semibold">AI Insight: </span>
+              {venue.aiNote}
+            </p>
+          ) : onRequestAiInsight ? (
+            <button
+              type="button"
+              onClick={onRequestAiInsight}
+              disabled={aiInsightLoading}
+              className="mb-4 w-full rounded-lg border border-[#C8E0DA] bg-[#EAF2F0] px-3 py-2.5 text-xs font-semibold text-[#2A6558] transition-colors hover:bg-[#DCF0EB] flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {aiInsightLoading ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Generating insight…
+                </>
+              ) : (
+                <>
+                  <Sparkles size={12} />
+                  View AI Insight
+                </>
+              )}
+            </button>
+          ) : (
+            <p className="mb-4 rounded-lg bg-[#EAF2F0] px-3 py-2.5 text-xs leading-relaxed text-[#215249] border border-[#C8E0DA]">
+              <span className="font-semibold">AI Insight: </span>
+              {venue.aiNote}
+            </p>
+          )}
 
           {/* Action buttons */}
           <div className="flex gap-2">
@@ -183,7 +218,7 @@ export default function VenueCard({
             </Link>
             {showReservedBadge ? (
               <span className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#EAF2F0] py-2.5 text-sm font-semibold text-[#2A6558] border border-[#C8E0DA] cursor-default">
-                <CalendarCheck size={15} /> Reserved
+                <CalendarCheck size={15} /> RESERVED
               </span>
             ) : (
               <Link

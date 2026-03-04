@@ -163,6 +163,70 @@ function renderAssistantContent(content: string): ReactNode {
   return <div className="space-y-2.5">{blocks}</div>;
 }
 
+// ─── Typewriter effect ──────────────────────────────────────
+const TYPEWRITER_SPEED = 12; // ms per character
+
+function useTypewriter(text: string, enabled: boolean) {
+  const [displayed, setDisplayed] = useState(enabled ? "" : text);
+  const [done, setDone] = useState(!enabled);
+
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayed(text);
+      setDone(true);
+      return;
+    }
+
+    setDisplayed("");
+    setDone(false);
+    let i = 0;
+
+    const id = setInterval(() => {
+      i += 1;
+      if (i >= text.length) {
+        setDisplayed(text);
+        setDone(true);
+        clearInterval(id);
+      } else {
+        setDisplayed(text.slice(0, i));
+      }
+    }, TYPEWRITER_SPEED);
+
+    return () => clearInterval(id);
+  }, [text, enabled]);
+
+  return { displayed, done };
+}
+
+function TypewriterAssistant({
+  content,
+  animate,
+  onDone,
+}: {
+  content: string;
+  animate: boolean;
+  onDone?: () => void;
+}) {
+  const { displayed, done } = useTypewriter(content, animate);
+  const firedRef = useRef(false);
+
+  useEffect(() => {
+    if (done && !firedRef.current) {
+      firedRef.current = true;
+      onDone?.();
+    }
+  }, [done, onDone]);
+
+  return (
+    <>
+      {renderAssistantContent(displayed)}
+      {!done && (
+        <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-[#2A6558]" />
+      )}
+    </>
+  );
+}
+
 function eventContextSummary(event: {
   eventName: string;
   occasion: string;
@@ -201,12 +265,26 @@ export default function SupportPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [resolvedModel, setResolvedModel] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    makeMessage(
-      "assistant",
-      "Hi, I am your VenYOU AI support assistant.\n\nQuick Answer:\nI can explain things in simple terms and give step-by-step actions.\n\nTry asking:\n- How do I plan my event budget?\n- Which venue should I shortlist first?\n- Where do I edit my event details?"
-    ),
-  ]);
+
+  // Track IDs that have already been "typed out" so we don't re-animate on re-render
+  const typedIdsRef = useRef<Set<string>>(new Set());
+  // Track the ID of the latest assistant message that should animate
+  const [animatingId, setAnimatingId] = useState<string | null>(null);
+
+  const initialMsg = useMemo(
+    () =>
+      makeMessage(
+        "assistant",
+        "Hi, I am your VenYOU AI support assistant.\n\nQuick Answer:\nI can explain things in simple terms and give step-by-step actions.\n\nTry asking:\n- How do I plan my event budget?\n- Which venue should I shortlist first?\n- Where do I edit my event details?"
+      ),
+    []
+  );
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    // Mark the initial message as already typed
+    typedIdsRef.current.add(initialMsg.id);
+    return [initialMsg];
+  });
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -285,7 +363,9 @@ export default function SupportPage() {
       }
 
       setResolvedModel(data.model);
-      setMessages((current) => [...current, makeMessage("assistant", data.reply.trim())]);
+      const assistantMsg = makeMessage("assistant", data.reply.trim());
+      setAnimatingId(assistantMsg.id);
+      setMessages((current) => [...current, assistantMsg]);
     } catch (error) {
       const detail =
         error instanceof Error && error.message.trim()
@@ -293,12 +373,14 @@ export default function SupportPage() {
           : "Support chat is unavailable right now.";
 
       showError("AI support unavailable", detail);
+      const errorMsg = makeMessage(
+        "assistant",
+        "I could not reach Groq right now. Please try again in a moment."
+      );
+      setAnimatingId(errorMsg.id);
       setMessages((current) => [
         ...current,
-        makeMessage(
-          "assistant",
-          "I could not reach Groq right now. Please try again in a moment."
-        ),
+        errorMsg,
       ]);
     } finally {
       setSending(false);
@@ -323,12 +405,12 @@ export default function SupportPage() {
 
   return (
     <AppShell>
-      <main className="mx-auto w-full max-w-6xl px-6 py-10 page-fade">
-        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+      <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10 page-fade">
+        <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:flex-wrap items-start justify-between gap-4">
           <div>
             <Link
               href={ROUTES.dashboard}
-              className="mb-4 inline-flex items-center gap-2 text-sm text-[#7C7671] hover:text-[#2A6558]"
+              className="mb-3 sm:mb-4 inline-flex items-center gap-2 text-sm text-[#7C7671] hover:text-[#2A6558]"
             >
               <ArrowLeft size={15} /> Back to Dashboard
             </Link>
@@ -339,15 +421,15 @@ export default function SupportPage() {
                 AI Support
               </span>
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-[#1A1817]">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#1A1817]">
               Chat Assistant
             </h1>
-            <p className="mt-1 text-sm text-[#7C7671]">
+            <p className="mt-1 text-xs sm:text-sm text-[#7C7671]">
               Ask planning questions and get Groq-powered guidance for your event setup.
             </p>
           </div>
 
-          <div className="min-w-64 rounded-2xl border border-[#E0DDD5] bg-white px-4 py-3">
+          <div className="w-full sm:w-auto sm:min-w-64 rounded-2xl border border-[#E0DDD5] bg-white px-4 py-3">
             <label
               htmlFor="support-event-context"
               className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-[#7C7671]"
@@ -375,11 +457,11 @@ export default function SupportPage() {
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <section className="flex h-[72vh] min-h-[560px] flex-col overflow-hidden rounded-2xl border border-[#E0DDD5] bg-[var(--vn-surface)] shadow-sm">
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <section className="flex h-[60vh] sm:h-[72vh] min-h-[380px] sm:min-h-[560px] flex-col overflow-hidden rounded-2xl border border-[#E0DDD5] bg-[var(--vn-surface)] shadow-sm">
             <div
               ref={chatScrollRef}
-              className="flex-1 space-y-4 overflow-y-auto p-5"
+              className="flex-1 space-y-3 sm:space-y-4 overflow-y-auto p-3 sm:p-5"
               style={{
                 background:
                   "linear-gradient(to bottom, var(--vn-surface) 0%, var(--vn-bg) 100%)",
@@ -393,7 +475,7 @@ export default function SupportPage() {
                     className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                      className={`max-w-[92%] sm:max-w-[90%] rounded-2xl px-3 py-2.5 sm:px-4 sm:py-3 text-sm leading-relaxed shadow-sm ${
                         isUser
                           ? "rounded-br-md bg-[#2A6558] text-white"
                           : "rounded-bl-md border border-[#E0DDD5] bg-[var(--vn-surface)] text-[#1A1817]"
@@ -406,7 +488,14 @@ export default function SupportPage() {
                       {isUser ? (
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       ) : (
-                        renderAssistantContent(message.content)
+                        <TypewriterAssistant
+                          content={message.content}
+                          animate={message.id === animatingId && !typedIdsRef.current.has(message.id)}
+                          onDone={() => {
+                            typedIdsRef.current.add(message.id);
+                            setAnimatingId(null);
+                          }}
+                        />
                       )}
                     </div>
                   </article>
@@ -422,15 +511,15 @@ export default function SupportPage() {
               )}
             </div>
 
-            <div className="border-t border-[#E0DDD5] bg-[var(--vn-surface)] p-4">
-              <div className="flex items-end gap-3">
+            <div className="border-t border-[#E0DDD5] bg-[var(--vn-surface)] p-3 sm:p-4">
+              <div className="flex items-end gap-2 sm:gap-3">
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={onComposerKeyDown}
-                  rows={3}
-                  placeholder="Ask in plain words. Example: 'How do I choose between 3 venues for 120 guests?'"
-                  className="min-h-[88px] flex-1 resize-none rounded-xl border border-[#E0DDD5] bg-[var(--vn-bg-alt)] px-3.5 py-2.5 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
+                  rows={2}
+                  placeholder="Ask in plain words…"
+                  className="min-h-[56px] sm:min-h-[88px] flex-1 resize-none rounded-xl border border-[#E0DDD5] bg-[var(--vn-bg-alt)] px-3 py-2 sm:px-3.5 sm:py-2.5 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
                 />
                 <button
                   type="button"
@@ -438,10 +527,10 @@ export default function SupportPage() {
                     void handleSend();
                   }}
                   disabled={sending || draft.trim().length === 0}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#2A6558] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#215249] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl bg-[#2A6558] px-3 py-2 sm:px-4 sm:py-2.5 text-sm font-semibold text-white transition hover:bg-[#215249] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <SendHorizontal size={15} />
-                  Send
+                  <span className="hidden sm:inline">Send</span>
                 </button>
               </div>
             </div>
@@ -454,12 +543,13 @@ export default function SupportPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setMessages([
-                      makeMessage(
-                        "assistant",
-                        "New chat started.\n\nQuick Answer:\nTell me your goal, and I will reply with clear steps and simple tips."
-                      ),
-                    ]);
+                    const freshMsg = makeMessage(
+                      "assistant",
+                      "New chat started.\n\nQuick Answer:\nTell me your goal, and I will reply with clear steps and simple tips."
+                    );
+                    typedIdsRef.current = new Set([freshMsg.id]);
+                    setAnimatingId(null);
+                    setMessages([freshMsg]);
                     setResolvedModel(null);
                   }}
                   className="inline-flex items-center gap-1 rounded-lg border border-[#E0DDD5] px-2.5 py-1 text-xs font-medium text-[#7C7671] transition hover:border-[#2A6558] hover:text-[#2A6558]"

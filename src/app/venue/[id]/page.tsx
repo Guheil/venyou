@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase/client";
 import { ROUTES } from "@/lib/routes";
 import {
@@ -35,6 +36,7 @@ interface VenueDetailsRow {
 }
 
 export default function VenueDetailPage() {
+  const { user, loading: authLoading } = useAuth();
   const params = useParams();
   const searchParams = useSearchParams();
 
@@ -54,7 +56,9 @@ export default function VenueDetailPage() {
   const [loading, setLoading] = useState(hasVenueId);
   const [venue, setVenue] = useState<VenueDetailsRow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [isReserved, setIsReserved] = useState(false);
+  const [isReservedByMe, setIsReservedByMe] = useState(false);
+  const [isUnavailableForDate, setIsUnavailableForDate] = useState(false);
+  const [reservationStateKey, setReservationStateKey] = useState<string | null>(null);
   const [reservedRef, setReservedRef] = useState<string | null>(null);
 
   // Pre-fill values loaded from the linked event
@@ -71,6 +75,10 @@ export default function VenueDetailPage() {
     void (async () => {
       setLoading(true);
       setLoadError(null);
+      setPrefillDate(undefined);
+      setPrefillStartTime(undefined);
+      setPrefillDurationHours(undefined);
+      setPrefillGuestCount(undefined);
 
       // Load venue details
       const { data, error } = await supabase
@@ -100,7 +108,7 @@ export default function VenueDetailPage() {
 
       setVenue(data as VenueDetailsRow);
 
-      // If we have an event id, load its details for pre-fill and check reservation
+      // If we have an event id, load its details for pre-fill.
       if (eventId && active) {
         const { data: eventData } = await supabase
           .from("events")
@@ -115,26 +123,6 @@ export default function VenueDetailPage() {
           setPrefillStartTime((eventData as { start_time: string }).start_time || undefined);
           setPrefillDurationHours((eventData as { duration_hours: number }).duration_hours);
           setPrefillGuestCount((eventData as { pax: number }).pax);
-
-          // Check if this venue is already reserved for that event date
-          const eventDate = (eventData as { event_date: string }).event_date;
-          if (eventDate) {
-            const { data: existing } = await supabase
-              .from("venue_reservations")
-              .select("id, reference_number")
-              .eq("venue_id", venueId)
-              .eq("event_date", eventDate)
-              .neq("reservation_status", "cancelled")
-              .maybeSingle();
-
-            if (!active) return;
-            if (existing) {
-              setIsReserved(true);
-              setReservedRef(
-                (existing as { reference_number: string }).reference_number
-              );
-            }
-          }
         }
       }
 
@@ -145,6 +133,78 @@ export default function VenueDetailPage() {
       active = false;
     };
   }, [venueId, eventId]);
+
+  useEffect(() => {
+    if (!venueId || !prefillDate || authLoading) return;
+
+    let active = true;
+    const nextReservationStateKey = eventId
+      ? `${venueId}:${eventId}`
+      : `${venueId}:${prefillDate}`;
+
+    void (async () => {
+      if (user) {
+        let ownReservationQuery = supabase
+          .from("venue_reservations")
+          .select("reference_number")
+          .eq("venue_id", venueId)
+          .eq("user_id", user.id)
+          .neq("reservation_status", "cancelled");
+
+        ownReservationQuery = eventId
+          ? ownReservationQuery.eq("event_id", eventId)
+          : ownReservationQuery.eq("event_date", prefillDate);
+
+        const { data: ownReservation } = await ownReservationQuery.maybeSingle();
+
+        if (!active) return;
+
+        if (ownReservation) {
+          setReservationStateKey(nextReservationStateKey);
+          setIsReservedByMe(true);
+          setIsUnavailableForDate(false);
+          setReservedRef(
+            (ownReservation as { reference_number: string }).reference_number
+          );
+          return;
+        }
+      }
+
+      const { data: existingReservation } = await supabase
+        .from("venue_reservations")
+        .select("id")
+        .eq("venue_id", venueId)
+        .eq("event_date", prefillDate)
+        .neq("reservation_status", "cancelled")
+        .maybeSingle();
+
+      if (!active) return;
+
+      setReservationStateKey(nextReservationStateKey);
+      setIsReservedByMe(false);
+      setIsUnavailableForDate(Boolean(existingReservation));
+      setReservedRef(null);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, eventId, prefillDate, user, venueId]);
+
+  const reservationLookupKey = eventId
+    ? `${venueId}:${eventId}`
+    : prefillDate
+      ? `${venueId}:${prefillDate}`
+      : null;
+  const showReservedState =
+    reservationLookupKey != null &&
+    reservationStateKey === reservationLookupKey &&
+    isReservedByMe;
+  const showUnavailableState =
+    reservationLookupKey != null &&
+    reservationStateKey === reservationLookupKey &&
+    !showReservedState &&
+    isUnavailableForDate;
 
   if (!hasVenueId) {
     return (
@@ -288,11 +348,11 @@ export default function VenueDetailPage() {
 
             {/* ── Reserve CTA ── */}
             <div className="mt-6 border-t border-[#E0DDD5] pt-6">
-              {isReserved || reservedRef ? (
+              {showReservedState ? (
                 <div className="flex flex-col items-center gap-2 rounded-2xl bg-[#EAF2F0] border border-[#C8E0DA] p-5 text-center">
                   <CalendarCheck size={28} className="text-[#2A6558]" />
                   <p className="font-extrabold text-[#1A1817]">
-                    This venue is already reserved
+                    This venue is already RESERVED
                   </p>
                   <p className="text-sm text-[#7C7671]">
                     Booking reference:{" "}
@@ -305,6 +365,23 @@ export default function VenueDetailPage() {
                     className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-[#2A6558] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#215249] transition-colors"
                   >
                     View My Reservations
+                  </Link>
+                </div>
+              ) : showUnavailableState ? (
+                <div className="flex flex-col items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
+                  <CalendarCheck size={28} className="text-amber-700" />
+                  <p className="font-extrabold text-[#1A1817]">
+                    This venue is unavailable for your selected date
+                  </p>
+                  <p className="text-sm text-[#7C7671]">
+                    Another reservation already holds this slot. Choose a different
+                    venue or adjust your event date.
+                  </p>
+                  <Link
+                    href={backHref}
+                    className="mt-1 inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-white px-5 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-100 transition-colors"
+                  >
+                    Back to Recommendations
                   </Link>
                 </div>
               ) : (

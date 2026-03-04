@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import VenueCard, { type Venue } from "@/components/VenueCard";
 import RecommendationsMap from "@/components/RecommendationsMap";
+import { useAuth } from "@/lib/AuthContext";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useToast } from "@/lib/ToastContext";
 import { supabase } from "@/lib/supabase/client";
@@ -150,7 +151,7 @@ function mapRecommendedVenue(row: RecommendedVenueRow): Venue {
       row.image_color?.trim() ||
       "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
     tags: row.tags ?? [],
-    aiNote: "Generating AI insight...",
+    aiNote: row.ai_note ?? "Venue fit based on your event profile.",
     match: Math.max(0, Math.min(100, Math.round(Number(row.match_score ?? 0)))),
   };
 }
@@ -168,12 +169,18 @@ function RecommendationsPageFallback() {
 function RecommendationsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user, loading: authLoading } = useAuth();
   const { error: showError } = useToast();
   const { events, hydrated, getEvent, updateEvent } = useEventsContext();
 
   const [venues, setVenues] = useState<Venue[]>([]);
+  const [rawRows, setRawRows] = useState<RecommendedVenueRow[]>([]);
+  const [aiInsightStates, setAiInsightStates] = useState<Record<string, "idle" | "loading" | "loaded" | "error">>({});
+  const [reservedVenueState, setReservedVenueState] = useState<{
+    eventId: string | null;
+    venueIds: Record<string, true>;
+  }>({ eventId: null, venueIds: {} });
   const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [generatingAiInsights, setGeneratingAiInsights] = useState(false);
   const [mapModalOpen, setMapModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -196,7 +203,7 @@ function RecommendationsPageContent() {
       setLoading(true);
       setLoadError(null);
       setAiSummary(null);
-      setGeneratingAiInsights(false);
+      setAiInsightStates({});
 
       const { data, error } = await supabase.rpc("recommend_venues_for_event", {
         p_event_id: selectedEventId,
@@ -217,88 +224,58 @@ function RecommendationsPageContent() {
       const rows = (data ?? []) as RecommendedVenueRow[];
       const mapped = rows.map((row) => mapRecommendedVenue(row));
       setVenues(mapped);
+      setRawRows(rows);
       setLoading(false);
-
-      if (rows.length === 0) return;
-
-      setGeneratingAiInsights(true);
-
-      // Enforce a minimum 1.4 s delay before the request resolves.
-      // This prevents hammering Groq's TPM limit when venues load fast.
-      const minDelay = new Promise<void>((resolve) => setTimeout(resolve, 3000));
-
-      try {
-        const payload = buildAiInsightsPayload(selectedEvent, rows);
-        const [insightResponse] = await Promise.all([
-          fetch("/api/recommendations/insights", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          }),
-          minDelay,
-        ]);
-
-        if (!active) return;
-
-        if (!insightResponse.ok) {
-          let detail = `Failed to generate Groq insights (${insightResponse.status}).`;
-          try {
-            const errorBody = (await insightResponse.json()) as { error?: unknown };
-            if (typeof errorBody.error === "string" && errorBody.error.trim()) {
-              detail = errorBody.error.trim();
-            }
-          } catch {
-            // Keep default detail.
-          }
-          throw new Error(detail);
-        }
-
-        const insightData = (await insightResponse.json()) as unknown;
-        if (!active) return;
-        if (!isAiInsightsResponsePayload(insightData)) {
-          throw new Error("Groq response format was invalid.");
-        }
-
-        const nextSummary = insightData.summary.trim();
-        if (nextSummary) {
-          setAiSummary(nextSummary);
-        }
-
-        const notesById = new Map(
-          insightData.insights.map((entry) => [entry.id, entry.insight.trim()])
-        );
-
-        setVenues((current) =>
-          current.map((venue) => {
-            const nextNote = notesById.get(venue.id);
-            return nextNote ? { ...venue, aiNote: nextNote } : venue;
-          })
-        );
-        setGeneratingAiInsights(false);
-      } catch (error) {
-        if (!active) return;
-        const detail =
-          error instanceof Error && error.message.trim()
-            ? error.message.trim()
-            : "Groq insight generation failed.";
-        console.error("[Recommendations] Groq insights error:", detail);
-        setGeneratingAiInsights(false);
-        setAiSummary(detail);
-        setVenues((current) =>
-          current.map((venue) => ({
-            ...venue,
-            aiNote: "Groq insight is unavailable right now. Please retry.",
-          }))
-        );
-      }
     })();
 
     return () => {
       active = false;
     };
   }, [hydrated, selectedEvent, selectedEventId, showError]);
+
+  useEffect(() => {
+    if (!hydrated || authLoading || !selectedEventId || !user) return;
+
+    let active = true;
+
+    void (async () => {
+      const { data, error } = await supabase
+        .from("venue_reservations")
+        .select("venue_id")
+        .eq("user_id", user.id)
+        .eq("event_id", selectedEventId)
+        .neq("reservation_status", "cancelled");
+
+      if (!active) return;
+
+      if (error) {
+        setReservedVenueState({
+          eventId: selectedEventId,
+          venueIds: {},
+        });
+        return;
+      }
+
+      const nextReserved: Record<string, true> = {};
+      for (const row of (data ?? []) as { venue_id: string }[]) {
+        nextReserved[row.venue_id] = true;
+      }
+
+      setReservedVenueState({
+        eventId: selectedEventId,
+        venueIds: nextReserved,
+      });
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, hydrated, selectedEventId, user]);
+
+  const reservedVenueIds =
+    user && selectedEventId === reservedVenueState.eventId
+      ? reservedVenueState.venueIds
+      : {};
 
   useEffect(() => {
     if (!selectedEventId || !selectedEventStatus || venues.length === 0) return;
@@ -332,6 +309,60 @@ function RecommendationsPageContent() {
     updateEvent,
     venues,
   ]);
+
+  const handleRequestAiInsight = async (venueId: string) => {
+    if (!selectedEvent) return;
+    const row = rawRows.find((r) => r.id === venueId);
+    if (!row) return;
+
+    setAiInsightStates((prev) => ({ ...prev, [venueId]: "loading" }));
+
+    try {
+      const payload = buildAiInsightsPayload(selectedEvent, [row]);
+      const response = await fetch("/api/recommendations/insights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+          const errorBody = (await response.json()) as { error?: unknown };
+          if (typeof errorBody.error === "string") detail = errorBody.error;
+        } catch { /* keep default */ }
+        throw new Error(detail);
+      }
+
+      const data = (await response.json()) as unknown;
+      if (!isAiInsightsResponsePayload(data)) {
+        throw new Error("Invalid response format");
+      }
+
+      const insight = data.insights.find((i) => i.id === venueId);
+      if (insight) {
+        setVenues((current) =>
+          current.map((v) =>
+            v.id === venueId ? { ...v, aiNote: insight.insight } : v
+          )
+        );
+      }
+      if (data.summary && !aiSummary) {
+        setAiSummary(data.summary);
+      }
+      setAiInsightStates((prev) => ({ ...prev, [venueId]: "loaded" }));
+    } catch (err) {
+      console.error("[AI Insight] Error for venue", venueId, err);
+      setAiInsightStates((prev) => ({ ...prev, [venueId]: "error" }));
+      setVenues((current) =>
+        current.map((v) =>
+          v.id === venueId
+            ? { ...v, aiNote: "AI insight unavailable. Please try again." }
+            : v
+        )
+      );
+    }
+  };
 
   const costSummary = useMemo(() => {
     if (venues.length === 0) return null;
@@ -590,12 +621,10 @@ function RecommendationsPageContent() {
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-white/80">
-                {generatingAiInsights ? (
-                  "Generating Groq summary..."
-                ) : aiSummary ? (
+                {aiSummary ? (
                   <>{aiSummary}</>
                 ) : (
-                  "Groq summary is unavailable right now."
+                  <>Click <strong className="text-[#7BC4B8]">View AI Insight</strong> on any venue card to generate a personalized AI analysis.</>
                 )}
               </p>
             </div>
@@ -660,6 +689,10 @@ function RecommendationsPageContent() {
                       prefillStartTime={selectedEvent.startTime || undefined}
                       prefillDurationHours={selectedEvent.durationHours}
                       prefillGuestCount={selectedEvent.pax}
+                      isReservedForDate={Boolean(reservedVenueIds[venue.id])}
+                      onRequestAiInsight={() => handleRequestAiInsight(venue.id)}
+                      aiInsightLoading={aiInsightStates[venue.id] === "loading"}
+                      aiInsightLoaded={aiInsightStates[venue.id] === "loaded" || aiInsightStates[venue.id] === "error"}
                     />
                   ))}
                 </div>

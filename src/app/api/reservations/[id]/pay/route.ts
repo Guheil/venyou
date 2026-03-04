@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 interface PayBody {
+  paymentMethod?: "cash" | "gcash";
   gcashNumber?: string;
 }
 
@@ -68,7 +69,28 @@ export async function POST(
     // body is optional for cash payments
   }
 
-  const paymentMethod = reservation.payment_method as "cash" | "gcash";
+  // Use the payment method from the request body (chosen in Step 2) if provided,
+  // falling back to whatever was stored when the reservation was created.
+  const paymentMethod: "cash" | "gcash" =
+    body.paymentMethod === "cash" || body.paymentMethod === "gcash"
+      ? body.paymentMethod
+      : (reservation.payment_method as "cash" | "gcash");
+
+  // Persist the corrected payment method so the DB record is accurate
+  if (paymentMethod !== reservation.payment_method) {
+    const { error: methodErr } = await supabase
+      .from("venue_reservations")
+      .update({ payment_method: paymentMethod })
+      .eq("id", reservationId)
+      .eq("user_id", user.id);
+
+    if (methodErr) {
+      return NextResponse.json(
+        { error: "Could not update payment method. Please try again." },
+        { status: 500 }
+      );
+    }
+  }
 
   // --- GCash validation (basic) ---
   if (paymentMethod === "gcash") {

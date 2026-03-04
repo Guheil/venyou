@@ -3,6 +3,7 @@
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Modal";
+import { useAuth } from "@/lib/AuthContext";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useToast } from "@/lib/ToastContext";
 import { supabase } from "@/lib/supabase/client";
@@ -239,6 +240,7 @@ interface EventReservation {
 }
 
 export default function EventsPage() {
+  const { user, loading: authLoading } = useAuth();
   const { events, hydrated, deleteEvent } = useEventsContext();
   const { success, error } = useToast();
   const [search, setSearch] = useState("");
@@ -248,13 +250,17 @@ export default function EventsPage() {
 
   // Load active reservation for each event
   useEffect(() => {
-    if (!hydrated || events.length === 0) return;
+    if (!hydrated || authLoading) return;
+    if (!user || events.length === 0) return;
+
     const ids = events.map((e) => e.id).filter(Boolean);
     if (ids.length === 0) return;
+
     void (async () => {
       const { data } = await supabase
         .from("venue_reservations")
         .select("event_id, reference_number, reservation_status, venues(name)")
+        .eq("user_id", user.id)
         .in("event_id", ids)
         .neq("reservation_status", "cancelled");
       if (!data) return;
@@ -275,7 +281,9 @@ export default function EventsPage() {
       }
       setEventReservations(map);
     })();
-  }, [hydrated, events]);
+  }, [authLoading, hydrated, events, user]);
+
+  const visibleEventReservations = user ? eventReservations : {};
 
   const filtered = events.filter((e) => {
     const matchSearch =
@@ -449,16 +457,16 @@ export default function EventsPage() {
                   </div>
 
                   {/* Reservation status banner */}
-                  {eventReservations[ev.id] && (
+                  {visibleEventReservations[ev.id] && (
                     <div className={`mt-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                      eventReservations[ev.id].status === "confirmed"
+                      visibleEventReservations[ev.id].status === "confirmed"
                         ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
                         : "border-amber-200 bg-amber-50 text-amber-700"
                     }`}>
                       <CalendarCheck size={13} />
-                      {eventReservations[ev.id].status === "confirmed"
-                        ? <>Venue reserved &amp; confirmed — <span className="font-bold">{eventReservations[ev.id].venueName}</span> &nbsp;·&nbsp; Ref: <span className="tracking-wider">{eventReservations[ev.id].referenceNumber}</span></>
-                        : <>Venue reserved (pending cash payment) — <span className="font-bold">{eventReservations[ev.id].venueName}</span> &nbsp;·&nbsp; Ref: <span className="tracking-wider">{eventReservations[ev.id].referenceNumber}</span></>}
+                      {visibleEventReservations[ev.id].status === "confirmed"
+                        ? <>Venue reserved &amp; confirmed — <span className="font-bold">{visibleEventReservations[ev.id].venueName}</span> &nbsp;·&nbsp; Ref: <span className="tracking-wider">{visibleEventReservations[ev.id].referenceNumber}</span></>
+                        : <>Venue reserved (pending cash payment) — <span className="font-bold">{visibleEventReservations[ev.id].venueName}</span> &nbsp;·&nbsp; Ref: <span className="tracking-wider">{visibleEventReservations[ev.id].referenceNumber}</span></>}
                     </div>
                   )}
 
@@ -479,7 +487,7 @@ export default function EventsPage() {
                         <Trash2 size={13} />
                         Delete
                       </button>
-                      {eventReservations[ev.id] ? (
+                      {visibleEventReservations[ev.id] ? (
                         <Link
                           href="/reservations"
                           className="flex items-center gap-1.5 rounded-lg bg-[#2A6558] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#215249]"

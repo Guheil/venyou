@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import AppShell from "@/components/AppShell";
+import { formatPeso } from "@/lib/budget";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useToast } from "@/lib/ToastContext";
 import { ROUTES } from "@/lib/routes";
@@ -167,18 +168,12 @@ function renderAssistantContent(content: string): ReactNode {
 const TYPEWRITER_SPEED = 12; // ms per character
 
 function useTypewriter(text: string, enabled: boolean) {
-  const [displayed, setDisplayed] = useState(enabled ? "" : text);
-  const [done, setDone] = useState(!enabled);
+  const [displayed, setDisplayed] = useState(() => (enabled ? "" : text));
+  const [done, setDone] = useState(() => !enabled);
 
   useEffect(() => {
-    if (!enabled) {
-      setDisplayed(text);
-      setDone(true);
-      return;
-    }
+    if (!enabled) return;
 
-    setDisplayed("");
-    setDone(false);
     let i = 0;
 
     const id = setInterval(() => {
@@ -195,7 +190,10 @@ function useTypewriter(text: string, enabled: boolean) {
     return () => clearInterval(id);
   }, [text, enabled]);
 
-  return { displayed, done };
+  return {
+    displayed: enabled ? displayed : text,
+    done: enabled ? done : true,
+  };
 }
 
 function TypewriterAssistant({
@@ -242,8 +240,8 @@ function eventContextSummary(event: {
 }): string {
   const budgetLabel =
     event.budgetType === "per-head"
-      ? `PHP ${event.budgetMin.toLocaleString()} - PHP ${event.budgetMax.toLocaleString()} per head`
-      : `PHP ${event.budgetMin.toLocaleString()} - PHP ${event.budgetMax.toLocaleString()} total`;
+      ? `${formatPeso(event.budgetMin)} - ${formatPeso(event.budgetMax)} per head`
+      : `${formatPeso(event.budgetMin)} - ${formatPeso(event.budgetMax)} total`;
 
   return [
     `Event "${event.eventName}"`,
@@ -573,7 +571,8 @@ export default function SupportPage() {
             <div className="rounded-2xl bg-[#1A1817] p-4">
               <h2 className="mb-2 text-sm font-semibold text-white">Best Prompts</h2>
               <p className="text-xs leading-relaxed text-white/75">
-                Ask concrete questions like: &quot;Compare 3 indoor options under PHP 2,000 per head for 150 guests in Pasig.&quot;
+                Ask concrete questions like: &quot;Compare 3 indoor options under
+                {" \u20B1"}2,000 per head for 150 guests in Pasig.&quot;
               </p>
             </div>
           </aside>

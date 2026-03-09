@@ -45,6 +45,11 @@ body.dark-theme {
 }
 
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-white,
+:is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-white\/90,
+:is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-white\/85,
+:is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-white\/80,
+:is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-white\/70,
+:is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-white\/60,
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-\[\#FDFCF9\],
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-\[\#FCFBF8\],
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .bg-\[\#F8F6F1\],
@@ -75,6 +80,7 @@ body.dark-theme {
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .border-\[\#E0DDD5\],
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .border-\[\#DDD8CF\],
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .border-\[\#D8D3C9\],
+:is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .border-white\/80,
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .border-\[\#C8E0DA\],
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .border-\[\#F0EDEA\],
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .border-\[\#DAD6CE\] {
@@ -137,6 +143,11 @@ body.dark-theme {
 
 :is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .via-\[\#F5FAF8\] {
   --tw-gradient-via: #182628 var(--tw-gradient-via-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important;
+}
+
+:is(html[data-theme="dark"], html.dark-theme, body.dark-theme) .via-white {
+  --tw-gradient-via: #162324 var(--tw-gradient-via-position) !important;
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important;
 }
 

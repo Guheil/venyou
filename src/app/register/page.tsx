@@ -10,6 +10,7 @@ import { useToast } from "@/lib/ToastContext";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/AuthContext";
 import { buildAuthRedirectUrl } from "@/lib/authRedirect";
+import AuthScreenLoader from "@/components/AuthScreenLoader";
 import {
   Eye,
   EyeOff,
@@ -88,7 +89,7 @@ function resolveDisplayName(metadata: Record<string, unknown> | undefined) {
 export default function RegisterPage() {
   const router = useRouter();
   const { error: showError, success } = useToast();
-  const { user, needsOnboarding, signOut } = useAuth();
+  const { user, loading: authLoading, needsOnboarding, signOut } = useAuth();
 
   const [step, setStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
@@ -313,6 +314,10 @@ export default function RegisterPage() {
 
   const activeDocument =
     openLegal === "terms" ? termsOfService : openLegal === "privacy" ? privacyPolicy : null;
+
+  if (authLoading) {
+    return <AuthScreenLoader />;
+  }
 
   if (done) {
     return (

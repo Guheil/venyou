@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
+import Modal from "@/components/Modal";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/lib/ToastContext";
@@ -23,12 +24,14 @@ import {
   Clock,
   MessageCircle,
   CalendarCheck,
+  PieChart,
 } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: ROUTES.dashboard, icon: LayoutDashboard },
   { label: "My Events", href: ROUTES.events, icon: CalendarDays },
   { label: "Create Event", href: ROUTES.createEvent, icon: Plus },
+  { label: "Cost Analysis", href: ROUTES.analysis, icon: PieChart },
   { label: "Recommendations", href: ROUTES.recommendations, icon: MapPin },
   { label: "My Reservations", href: ROUTES.reservations, icon: CalendarCheck },
   { label: "AI Support", href: ROUTES.support, icon: MessageCircle },
@@ -44,6 +47,7 @@ export default function Sidebar() {
   const { error } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const recentEvents = events.slice(0, 3);
@@ -52,6 +56,7 @@ export default function Sidebar() {
     setLoggingOut(true);
     try {
       await signOut();
+      setConfirmLogoutOpen(false);
       router.replace(ROUTES.login);
     } catch {
       error("Unable to sign out", "Please try again.");
@@ -173,7 +178,7 @@ export default function Sidebar() {
         )}
         <button
           type="button"
-          onClick={handleSignOut}
+          onClick={() => setConfirmLogoutOpen(true)}
           disabled={loggingOut}
           className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[#7C7671] transition hover:bg-red-50 hover:text-red-500 ${collapsed ? "justify-center" : ""}`}
           title={collapsed ? "Sign Out" : undefined}
@@ -191,6 +196,50 @@ export default function Sidebar() {
 
   return (
     <>
+      <Modal
+        open={confirmLogoutOpen}
+        onClose={() => {
+          if (!loggingOut) {
+            setConfirmLogoutOpen(false);
+          }
+        }}
+        title="Sign out?"
+        description="You will need to sign in again to access your dashboard and saved planning data."
+        size="sm"
+        closeOnOverlayClick={!loggingOut}
+        closeOnEsc={!loggingOut}
+        showCloseButton={!loggingOut}
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setConfirmLogoutOpen(false)}
+              disabled={loggingOut}
+              className="rounded-xl border border-[#E0DDD5] px-4 py-2 text-sm font-medium text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817] disabled:opacity-60"
+            >
+              Stay signed in
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSignOut()}
+              disabled={loggingOut}
+              className="flex min-w-28 items-center justify-center gap-2 rounded-xl bg-[#C0392B] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#A93226] disabled:opacity-60"
+            >
+              {loggingOut ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <LogOut size={16} className="shrink-0" />
+              )}
+              <span>{loggingOut ? "Signing Out..." : "Sign Out"}</span>
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-relaxed text-[#7C7671]">
+          Confirm logout before ending your current session.
+        </p>
+      </Modal>
+
       {/* Mobile top bar */}
       <div className="sticky top-0 z-40 flex w-full items-center justify-between border-b border-[#E0DDD5] bg-[#FDFCF9] px-5 py-4 lg:hidden">
         <Link href={ROUTES.home} className="flex items-center gap-2">

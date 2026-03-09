@@ -292,7 +292,9 @@ export default function LandingPage() {
                         </div>
                         <div className="rounded-lg bg-[#F8F6F1] px-3 py-2">
                           <p className="text-[#7C7671]">Price</p>
-                          <p className="mt-0.5 font-semibold text-[#2A6558]">PHP 850 / head</p>
+                          <p className="mt-0.5 font-semibold text-[#2A6558]">
+                            {"\u20B1"}850 / head
+                          </p>
                         </div>
                       </div>
                     </div>

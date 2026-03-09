@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import AppShell from "@/components/AppShell";
 import { useAuth } from "@/lib/AuthContext";
+import { formatPeso as formatBudgetPeso } from "@/lib/budget";
 import { supabase } from "@/lib/supabase/client";
 import { ROUTES } from "@/lib/routes";
 import {
@@ -12,6 +13,7 @@ import {
   mapReservationRow,
 } from "@/lib/types";
 import {
+  CalendarCheck,
   CalendarDays,
   Clock,
   Users,
@@ -52,6 +54,7 @@ function formatDateTime(iso: string): string {
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function formatPeso(amount: number): string {
   return `₱${amount.toLocaleString("en-PH")}`;
 }
@@ -164,7 +167,7 @@ function ReservationCard({
           <DetailItem icon={<CalendarDays size={12} />} text={formatDate(reservation.eventDate)} />
           <DetailItem
             icon={<Clock size={12} />}
-            text={`${formatTime(reservation.startTime)} · ${reservation.durationHours}h`}
+            text={`${formatTime(reservation.startTime)} - ${reservation.durationHours}h`}
           />
           <DetailItem
             icon={<Users size={12} />}
@@ -188,7 +191,7 @@ function ReservationCard({
             {reservation.paymentMethod === "gcash" ? "GCash" : "Cash"}
           </div>
           <span className="text-sm font-extrabold text-[#2A6558]">
-            {formatPeso(reservation.totalAmount)}
+            {formatBudgetPeso(reservation.totalAmount)}
           </span>
         </div>
 
@@ -212,7 +215,7 @@ function ReservationCard({
         {/* Expiry warning */}
         {reservation.reservationStatus === "pending_payment" && !isExpired && reservation.expiresAt && (
           <p className="mb-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-            ⏳ Payment slot expires{" "}
+            Payment slot expires{" "}
             <strong>{formatDateTime(reservation.expiresAt)}</strong>. Complete payment to confirm your booking.
           </p>
         )}
@@ -276,7 +279,7 @@ function DetailItem({
   text,
   truncate,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   text: string;
   truncate?: boolean;
 }) {
@@ -289,6 +292,85 @@ function DetailItem({
 }
 
 // ─── Page ────────────────────────────────────────────────────
+
+function Panel({
+  children,
+  className = "",
+  tone = "default",
+}: {
+  children: ReactNode;
+  className?: string;
+  tone?: "default" | "dark";
+}) {
+  const toneClass =
+    tone === "dark"
+      ? "border-[#1A1817] bg-[#1A1817] text-white"
+      : "border-[#E0DDD5] bg-white";
+
+  return (
+    <section
+      className={`rounded-[28px] border p-5 shadow-sm sm:p-6 ${toneClass} ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
+
+function SectionHeader({
+  title,
+  description,
+  eyebrow,
+  action,
+}: {
+  title: string;
+  description: string;
+  eyebrow?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        {eyebrow && (
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">
+            {eyebrow}
+          </p>
+        )}
+        <h2 className="text-xl font-extrabold tracking-tight text-[#1A1817]">
+          {title}
+        </h2>
+        <p className="mt-1 text-sm text-[#7C7671]">{description}</p>
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+function KpiCard({
+  icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8] p-5 shadow-sm">
+      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-[#EAF2F0] text-[#2A6558]">
+        {icon}
+      </div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7C7671]">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#1A1817]">
+        {value}
+      </p>
+      <p className="mt-1 text-sm text-[#7C7671]">{detail}</p>
+    </div>
+  );
+}
 
 export default function ReservationsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -364,8 +446,9 @@ export default function ReservationsPage() {
     }
   };
 
-  const filtered = reservations.filter(
-    (r) => filter === "all" || r.reservationStatus === filter
+  const filtered = useMemo(
+    () => reservations.filter((reservation) => filter === "all" || reservation.reservationStatus === filter),
+    [filter, reservations]
   );
 
   const counts = {
@@ -381,92 +464,220 @@ export default function ReservationsPage() {
     { key: "pending_payment", label: "Pending" },
     { key: "cancelled", label: "Cancelled" },
   ];
+  const totalReservedValue = reservations
+    .filter((reservation) => reservation.reservationStatus !== "cancelled")
+    .reduce((sum, reservation) => sum + reservation.totalAmount, 0);
+  const upcomingCount = reservations.filter((reservation) => {
+    const eventDate = new Date(`${reservation.eventDate}T00:00:00`);
+    const today = new Date();
+    const startOfToday = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+    return eventDate >= startOfToday && reservation.reservationStatus !== "cancelled";
+  }).length;
+  const activeReservations = reservations.filter(
+    (reservation) => reservation.reservationStatus !== "cancelled"
+  );
+  const confirmedReservations = reservations.filter(
+    (reservation) => reservation.reservationStatus === "confirmed"
+  );
+  const pendingReservations = reservations.filter(
+    (reservation) => reservation.reservationStatus === "pending_payment"
+  );
+  const confirmedValue = confirmedReservations.reduce(
+    (sum, reservation) => sum + reservation.totalAmount,
+    0
+  );
+  const pendingValue = pendingReservations.reduce(
+    (sum, reservation) => sum + reservation.totalAmount,
+    0
+  );
+  const nextReservation = [...activeReservations]
+    .sort(
+      (left, right) =>
+        new Date(`${left.eventDate}T00:00:00`).getTime() -
+        new Date(`${right.eventDate}T00:00:00`).getTime()
+    )[0];
+  const nextReservationDaysAway = nextReservation
+    ? Math.round(
+        (new Date(`${nextReservation.eventDate}T00:00:00`).getTime() -
+          new Date(new Date().setHours(0, 0, 0, 0)).getTime()) /
+          (1000 * 60 * 60 * 24)
+      )
+    : null;
+  const paymentWatch = [...pendingReservations]
+    .sort((left, right) => {
+      const leftTime = left.expiresAt
+        ? new Date(left.expiresAt).getTime()
+        : new Date(left.createdAt).getTime();
+      const rightTime = right.expiresAt
+        ? new Date(right.expiresAt).getTime()
+        : new Date(right.createdAt).getTime();
+      return leftTime - rightTime;
+    })
+    .slice(0, 3);
+  const recentReservations = reservations.slice(0, 3);
 
   return (
     <AppShell>
-      <main className="mx-auto w-full max-w-3xl px-6 py-10">
-        {/* Header */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-extrabold text-[#1A1817]">
-              My Reservations
-            </h1>
-            <p className="mt-1 text-sm text-[#7C7671]">
-              All your venue bookings in one place
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={triggerReload}
-              disabled={loading}
-              className="flex items-center gap-1.5 rounded-xl border border-[#E0DDD5] bg-white px-3 py-2 text-sm font-medium text-[#7C7671] hover:bg-[#F8F6F1] transition-colors"
-            >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              Refresh
-            </button>
-            <Link
-              href={ROUTES.recommendations}
-              className="flex items-center gap-1.5 rounded-xl bg-[#2A6558] px-4 py-2 text-sm font-semibold text-white hover:bg-[#215249] transition-colors"
-            >
-              <Plus size={14} /> New Booking
-            </Link>
-          </div>
-        </div>
+      <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+        <section className="rounded-[30px] border border-[#E0DDD5] bg-gradient-to-br from-[#FCFBF8] via-white to-[#F0F6F4] p-6 sm:p-8">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-3xl">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-[#C8E0DA] bg-[#EAF2F0] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">
+                  Reservation Desk
+                </span>
+                <span className="rounded-full border border-[#E0DDD5] bg-white px-3 py-1 text-xs text-[#7C7671]">
+                  Booking overview
+                </span>
+              </div>
+              <h1 className="text-3xl font-extrabold tracking-tight text-[#1A1817] sm:text-4xl">
+                Track every venue hold, payment state, and confirmed booking in one place.
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#6B6661] sm:text-base">
+                Review the status of each reservation, refresh time-sensitive holds, and keep active bookings close to the rest of your planning workflow.
+              </p>
+            </div>
 
-        {/* Filter tabs */}
-        <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              className={`shrink-0 rounded-full border px-4 py-1.5 text-xs font-semibold transition-all ${
-                filter === tab.key
-                  ? "border-[#2A6558] bg-[#2A6558] text-white"
-                  : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]/40"
-              }`}
-            >
-              {tab.label}{" "}
-              <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${
-                filter === tab.key ? "bg-white/20 text-white" : "bg-[#F0EEEA] text-[#7C7671]"
-              }`}>
-                {counts[tab.key]}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        {loading ? (
-          <div className="flex min-h-[40vh] items-center justify-center">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#2A6558] border-t-transparent" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#E0DDD5] bg-white px-8 py-16 text-center">
-            <CalendarDays size={32} className="mx-auto mb-4 text-[#C8C2BB]" />
-            <h2 className="mb-1 text-lg font-extrabold text-[#1A1817]">
-              {filter === "all" ? "No reservations yet" : `No ${filter.replace("_", " ")} reservations`}
-            </h2>
-            <p className="mb-6 text-sm text-[#7C7671]">
-              {filter === "all"
-                ? "Browse venues from your event recommendations and reserve one."
-                : 'Switch to "All" to see everything.'}
-            </p>
-            {filter === "all" && (
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={triggerReload}
+                disabled={loading}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-[#D8D3C9] bg-white px-5 py-3 text-sm font-semibold text-[#1A1817] transition hover:border-[#2A6558] hover:text-[#2A6558] disabled:opacity-60"
+              >
+                <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+                Refresh
+              </button>
               <Link
                 href={ROUTES.recommendations}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#2A6558] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#215249] transition-colors"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#2A6558] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#215249]"
               >
-                <Plus size={14} /> Browse Venues
+                <Plus size={15} />
+                New Booking
               </Link>
-            )}
+            </div>
           </div>
-        ) : (
-          <div className="space-y-5">
-            {filtered.map((r) => (
-              <ReservationCard key={r.id} reservation={r} onCancel={handleCancel} />
+        </section>
+
+        <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            icon={<CalendarCheck size={18} />}
+            label="Active Bookings"
+            value={loading ? "-" : String(counts.confirmed + counts.pending_payment)}
+            detail="Confirmed and still-active pending reservations"
+          />
+          <KpiCard
+            icon={<CheckCircle2 size={18} />}
+            label="Confirmed"
+            value={loading ? "-" : String(counts.confirmed)}
+            detail="Reservations that are already fully locked in"
+          />
+          <KpiCard
+            icon={<AlertCircle size={18} />}
+            label="Upcoming"
+            value={loading ? "-" : String(upcomingCount)}
+            detail="Future reservation dates still on your calendar"
+          />
+          <KpiCard
+            icon={<Banknote size={18} />}
+            label="Reserved Value"
+            value={loading ? "-" : formatBudgetPeso(totalReservedValue)}
+            detail="Total amount across non-cancelled reservations"
+          />
+        </section>
+
+        <Panel className="mt-6">
+          <SectionHeader
+            eyebrow="Status"
+            title="Filter your booking pipeline"
+            description="Switch between all reservations, confirmed bookings, pending payment holds, and cancelled records."
+          />
+
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {tabs.map((tab) => (
+              <button
+                type="button"
+                key={tab.key}
+                onClick={() => setFilter(tab.key)}
+                className={`shrink-0 rounded-full border px-4 py-1.5 text-xs font-semibold transition-all ${
+                  filter === tab.key
+                    ? "border-[#2A6558] bg-[#2A6558] text-white"
+                    : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]/40"
+                }`}
+              >
+                {tab.label}{" "}
+                <span
+                  className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${
+                    filter === tab.key
+                      ? "bg-white/20 text-white"
+                      : "bg-[#F0EEEA] text-[#7C7671]"
+                  }`}
+                >
+                  {counts[tab.key]}
+                </span>
+              </button>
             ))}
           </div>
-        )}
+        </Panel>
+
+        <Panel className="mt-6">
+            <SectionHeader
+              eyebrow="Reservations"
+              title={
+                filter === "all"
+                  ? "Your booking lineup"
+                  : `${tabs.find((tab) => tab.key === filter)?.label ?? "Filtered"} reservations`
+              }
+              description="Each reservation keeps the event date, payment state, booking reference, and cancellation controls in one place."
+              action={
+                <span className="inline-flex rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-3 py-1 text-xs font-semibold text-[#7C7671]">
+                  {filtered.length} visible
+                </span>
+              }
+            />
+
+            {loading ? (
+              <div className="flex min-h-[320px] items-center justify-center rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8]">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#2A6558] border-t-transparent" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="rounded-[24px] border border-dashed border-[#E0DDD5] bg-[#FCFBF8] px-8 py-14 text-center">
+                <CalendarDays size={32} className="mx-auto mb-4 text-[#C8C2BB]" />
+                <h2 className="mb-1 text-lg font-extrabold text-[#1A1817]">
+                  {filter === "all"
+                    ? "No reservations yet"
+                    : `No ${filter.replace("_", " ")} reservations`}
+                </h2>
+                <p className="mb-6 text-sm text-[#7C7671]">
+                  {filter === "all"
+                    ? "Browse venues from your event recommendations and reserve one."
+                    : 'Switch to "All" to see the full booking pipeline.'}
+                </p>
+                {filter === "all" && (
+                  <Link
+                    href={ROUTES.recommendations}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#2A6558] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#215249]"
+                  >
+                    <Plus size={14} /> Browse Venues
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {filtered.map((reservation) => (
+                  <ReservationCard
+                    key={reservation.id}
+                    reservation={reservation}
+                    onCancel={handleCancel}
+                  />
+                ))}
+              </div>
+            )}
+        </Panel>
       </main>
     </AppShell>
   );

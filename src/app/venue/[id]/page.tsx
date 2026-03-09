@@ -312,9 +312,7 @@ export default function VenueDetailPage() {
               </div>
               <div className="flex items-center gap-2 rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-3 py-2.5">
                 <DollarSign size={14} className="text-[#2A6558]" />
-                <span>
-                  PHP {venue.price_per_head.toLocaleString()} per head
-                </span>
+                <span>{`\u20B1${venue.price_per_head.toLocaleString()} per head`}</span>
               </div>
               <div className="flex items-center gap-2 rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-3 py-2.5">
                 <Tag size={14} className="text-[#2A6558]" />

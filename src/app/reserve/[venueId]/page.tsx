@@ -48,6 +48,7 @@ interface VenueRow {
   tags: string[] | null;
   description: string;
   image_color: string | null;
+  image_url: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -356,7 +357,7 @@ export default function ReserveVenuePage() {
     void (async () => {
       const { data, error } = await supabase
         .from("venues")
-        .select("id,name,type,address,city,area,capacity,price_per_head,rating,review_count,setting,tags,description,image_color")
+        .select("id,name,type,address,city,area,capacity,price_per_head,rating,review_count,setting,tags,description,image_color,image_url")
         .eq("id", venueId)
         .eq("is_active", true)
         .maybeSingle();
@@ -613,7 +614,22 @@ export default function ReserveVenuePage() {
           {/* ────────────────── Venue preview card (steps 1 & 2) ────────────────── */}
           {step < 3 && (
             <div className="overflow-hidden rounded-2xl border border-[#E0DDD5] bg-white">
-              <div className="h-24" style={{ background: bannerBg }} />
+              <div className="relative h-24 overflow-hidden" style={{ background: bannerBg }}>
+                {venue.image_url && (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={venue.image_url}
+                      alt={venue.name}
+                      className="absolute inset-0 h-full w-full object-cover"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/35 to-transparent" />
+                  </>
+                )}
+              </div>
               <div className="flex items-start justify-between gap-4 px-5 py-4">
                 <div className="min-w-0">
                   <h2 className="truncate font-extrabold text-[#1A1817]">{venue.name}</h2>
@@ -957,7 +973,7 @@ export default function ReserveVenuePage() {
 
                 {paymentMethod === "cash" && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 leading-relaxed">
-                    <strong>Important:</strong> By clicking "Confirm Reservation" you agree to pay{" "}
+                    <strong>Important:</strong> By clicking &quot;Confirm Reservation&quot; you agree to pay{" "}
                     <strong>{formatPeso(totalAmount)}</strong> in cash on your event date. Failure to pay on the day may result in cancellation of your booking.
                   </div>
                 )}

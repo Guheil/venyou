@@ -14,6 +14,7 @@ export interface Venue {
   pricePerHead: number;
   totalEstimate: number;
   imageColor: string; // tailwind bg color fallback
+  imageUrl?: string;
   tags: string[];
   aiNote: string;
   match: number; // 0-100 AI match score
@@ -92,9 +93,24 @@ export default function VenueCard({
       <div className="venue-card rounded-2xl border border-[#E0DDD5] bg-[#FDFCF9] overflow-hidden">
         {/* Image / color block */}
         <div
-          className={`relative h-44 flex items-end p-4`}
+          className="relative flex h-44 items-end overflow-hidden p-4"
           style={{ background: venue.imageColor }}
         >
+          {venue.imageUrl && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={venue.imageUrl}
+                alt={venue.name}
+                className="absolute inset-0 h-full w-full object-cover"
+                loading="lazy"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-black/10" />
+            </>
+          )}
           {/* Rank badge */}
           <span className="absolute top-3 left-3 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-xs font-bold text-[#1A1817] shadow">
             #{rank}
@@ -112,7 +128,7 @@ export default function VenueCard({
             </span>
           )}
           {/* Tags */}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="relative z-10 flex flex-wrap gap-1.5">
             {venue.tags.slice(0, 3).map((tag) => (
               <span
                 key={tag}

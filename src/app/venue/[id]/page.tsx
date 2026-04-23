@@ -32,6 +32,7 @@ interface VenueDetailsRow {
   tags: string[] | null;
   description: string;
   image_color: string | null;
+  image_url: string | null;
   base_distance_km: number;
 }
 
@@ -84,7 +85,7 @@ export default function VenueDetailPage() {
       const { data, error } = await supabase
         .from("venues")
         .select(
-          "id,name,type,address,city,area,capacity,price_per_head,rating,review_count,setting,tags,description,image_color,base_distance_km"
+          "id,name,type,address,city,area,capacity,price_per_head,rating,review_count,setting,tags,description,image_color,image_url,base_distance_km"
         )
         .eq("id", venueId)
         .eq("is_active", true)
@@ -272,13 +273,28 @@ export default function VenueDetailPage() {
 
         <div className="overflow-hidden rounded-2xl border border-[#E0DDD5] bg-white">
           <div
-            className="h-52"
+            className="relative h-52 overflow-hidden"
             style={{
               background:
                 venue.image_color ||
                 "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
             }}
-          />
+          >
+            {venue.image_url && (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={venue.image_url}
+                  alt={venue.name}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  onError={(event) => {
+                    event.currentTarget.style.display = "none";
+                  }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+              </>
+            )}
+          </div>
 
           <div className="p-6 md:p-7">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-4">

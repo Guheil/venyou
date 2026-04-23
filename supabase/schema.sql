@@ -158,9 +158,13 @@ create table if not exists public.venues (
   tags text[] not null default '{}',
   description text not null default '',
   image_color text not null default 'linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)',
+  image_url text not null default '',
   base_distance_km numeric(6, 2) not null default 3.0 check (base_distance_km >= 0),
   is_active boolean not null default true
 );
+
+alter table public.venues
+  add column if not exists image_url text not null default '';
 
 create unique index if not exists venues_name_address_key
   on public.venues (name, address);
@@ -817,6 +821,200 @@ on conflict (id) do update set
   is_active = excluded.is_active,
   updated_at = timezone('utc', now());
 
+update public.venues
+set
+  image_url = case id::text
+    when '1f74fd78-45b8-4e72-93f5-a2ac5ab6d101' then 'https://en.wikipedia.org/wiki/Special:FilePath/Shangri-La_at_the_Fort%2C_Manila.jpg'
+    when 'f4d6021e-8759-4b0b-80ab-40f16f3ab3ce' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Araneta_Center_%28Cubao%2C_Quezon_City%29%282017-08-13%29.jpg'
+    when 'b0eb0f84-ed83-4b1f-9050-9f2037fdab2f' then 'https://commons.wikimedia.org/wiki/Special:FilePath/The_Peninsula_Manila%2C_Makati_City%2C_Feb_2024.jpg'
+    when 'bbfdd9be-bf27-4af4-96c6-d21f9f3bd57a' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Bay_Area_City_Pasay_13.jpg'
+    when 'd4f1a4f8-a508-43ad-b0ce-5df501e30d4b' then 'https://commons.wikimedia.org/wiki/Special:FilePath/SMX_Convention_Center_12.jpg'
+    when '57f64544-b9a0-4f95-87ce-c21ed2ae4773' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Manila_Hotel_view.jpg'
+    when '2da8aa80-ca4a-4f49-b0a6-26f6f2f7358d' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Okada_manila.jpg'
+    when '4ac5db07-4b71-4f1a-a36b-ad6c8418ef08' then 'https://commons.wikimedia.org/wiki/Special:FilePath/City_Of_Dreams.jpg'
+    when '3f741d6a-7f0d-47a6-9a62-d00e6f203175' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Edsa_Shangri-La%2C_Manila_in_2025.jpg'
+    when '6c2d9f60-62b6-4a18-aa33-91844d3ec516' then 'https://commons.wikimedia.org/wiki/Special:FilePath/F._Ortigas_Jr._Road_2021.jpg'
+    when 'b2094453-7cf3-4d79-be5f-9e81600d8883' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Santuario_de_San_Antonio.jpg'
+    when 'd9535179-0bd8-46ab-a0f2-ce40d7f755e7' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Nuestra_Senora_de_Gracia_Church_Makati_Philippines.jpg'
+    when 'dc622469-d44a-46b6-b4ea-858e4f31ef1c' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Quiapo_Church%2C_Manila.JPG'
+    when 'f34729a5-9068-495f-b9b3-864e43954100' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Casa_Manila_%28courtyard%29.jpg'
+    when '101d0d3e-0521-425e-9020-23ca8e44d688' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Baluarte_de_San_Diego%2C_Manila%2C_Filipinas%2C_2023-08-27%2C_DD_62.jpg'
+    when 'adb547a9-2a34-4e94-85b6-e821598a3ac1' then 'https://commons.wikimedia.org/wiki/Special:FilePath/Ayala_Museum%2C_Makati%2C_Feb_2025_%281%29.jpg'
+    else image_url
+  end,
+  updated_at = timezone('utc', now())
+where id::text in (
+  '1f74fd78-45b8-4e72-93f5-a2ac5ab6d101',
+  'f4d6021e-8759-4b0b-80ab-40f16f3ab3ce',
+  'b0eb0f84-ed83-4b1f-9050-9f2037fdab2f',
+  'bbfdd9be-bf27-4af4-96c6-d21f9f3bd57a',
+  'd4f1a4f8-a508-43ad-b0ce-5df501e30d4b',
+  '57f64544-b9a0-4f95-87ce-c21ed2ae4773',
+  '2da8aa80-ca4a-4f49-b0a6-26f6f2f7358d',
+  '4ac5db07-4b71-4f1a-a36b-ad6c8418ef08',
+  '3f741d6a-7f0d-47a6-9a62-d00e6f203175',
+  '6c2d9f60-62b6-4a18-aa33-91844d3ec516',
+  'b2094453-7cf3-4d79-be5f-9e81600d8883',
+  'd9535179-0bd8-46ab-a0f2-ce40d7f755e7',
+  'dc622469-d44a-46b6-b4ea-858e4f31ef1c',
+  'f34729a5-9068-495f-b9b3-864e43954100',
+  '101d0d3e-0521-425e-9020-23ca8e44d688',
+  'adb547a9-2a34-4e94-85b6-e821598a3ac1'
+);
+
+insert into public.venues (
+  id,
+  name,
+  type,
+  address,
+  city,
+  area,
+  capacity,
+  price_per_head,
+  rating,
+  review_count,
+  setting,
+  tags,
+  description,
+  image_color,
+  image_url,
+  base_distance_km,
+  is_active
+)
+values
+  (
+    '88087d09-b724-4e05-af09-273ce56b0b0f',
+    'The Bayleaf Intramuros',
+    'Hotel / Rooftop & Function Rooms',
+    'Muralla corner Victoria Streets, Intramuros, Manila 1002, Philippines',
+    'Manila',
+    'Intramuros',
+    250,
+    1850,
+    4.55,
+    680,
+    'both',
+    array['Hotel', 'Rooftop', 'Wedding', 'Corporate'],
+    'Intramuros hotel with function rooms, social packages, and rooftop city views for weddings, debuts, and business gatherings.',
+    'linear-gradient(135deg, #B9C4A4 0%, #DFE7CE 100%)',
+    'https://commons.wikimedia.org/wiki/Special:FilePath/The_Bayleaf%2C_a_hotel_in_Intramuros%2C_Manila.jpg',
+    8.6,
+    true
+  ),
+  (
+    '7328a54a-edd1-45f9-ae69-1f69e6dea3c7',
+    'Century Park Hotel Manila',
+    'Hotel / Grand Ballroom',
+    '599 P. Ocampo Street, Malate, Manila 1004, Philippines',
+    'Manila',
+    'Malate',
+    600,
+    1650,
+    4.45,
+    920,
+    'indoor',
+    array['Hotel', 'Ballroom', 'Corporate', 'Wedding'],
+    'Malate hotel with a large grand ballroom and multiple function rooms for weddings, galas, conferences, and milestone events.',
+    'linear-gradient(135deg, #B5C0CE 0%, #DEE5EC 100%)',
+    'https://commons.wikimedia.org/wiki/Special:FilePath/04948jfStreets_Adriatico_Harrison_Plaza_SM_Century_Park_Buildings_Malate_Manilafvf_10.jpg',
+    7.8,
+    true
+  ),
+  (
+    'edb12ad8-0fcc-4248-a2b3-a6083b648d1f',
+    'Manila Prince Hotel',
+    'Hotel / Function Rooms',
+    '1000 San Marcelino Street, Ermita, Manila 1000, Philippines',
+    'Manila',
+    'Ermita',
+    600,
+    1450,
+    4.35,
+    760,
+    'indoor',
+    array['Hotel', 'Function Rooms', 'Business', 'Wedding'],
+    'Ermita hotel with flexible event rooms for meetings, conferences, weddings, and social gatherings in central Manila.',
+    'linear-gradient(135deg, #C9B8A8 0%, #E9DDD2 100%)',
+    'https://commons.wikimedia.org/wiki/Special:FilePath/0387jfErmita_Manila_Manila_Prince_Hotel_San_Marcelino_Streetfvf_05.jpg',
+    8.1,
+    true
+  ),
+  (
+    'dc47aa75-7b3a-4478-8dcd-e7ac4f650a5d',
+    'Winford Resort & Casino Manila',
+    'Resort Hotel / Ballroom',
+    'San Lazaro Tourism and Business Park, MJC Drive, Sta. Cruz, Manila, Philippines',
+    'Manila',
+    'Sta. Cruz',
+    1000,
+    1850,
+    4.45,
+    700,
+    'indoor',
+    array['Hotel', 'Ballroom', 'Entertainment', 'Corporate'],
+    'Sta. Cruz resort hotel with a large ballroom, hospitality facilities, and event support for grand celebrations and corporate programs.',
+    'linear-gradient(135deg, #C0B3D1 0%, #E2D9EE 100%)',
+    'https://commons.wikimedia.org/wiki/Special:FilePath/06524jfSan_Lazaro_Tourism_Business_Park_Winford_Hotel_%26_Casino_Manilafvf_01.jpg',
+    9.2,
+    true
+  ),
+  (
+    '5cab6091-1270-4887-b3fa-4566516f5a43',
+    'Manila Cathedral',
+    'Cathedral / Ceremony Venue',
+    'Cabildo corner Beaterio Streets, Intramuros, Manila 1002, Philippines',
+    'Manila',
+    'Intramuros',
+    1000,
+    420,
+    4.85,
+    2100,
+    'indoor',
+    array['Church', 'Cathedral', 'Catholic', 'Wedding'],
+    'Historic Intramuros cathedral and major Catholic ceremony venue for weddings, religious milestones, and formal rites.',
+    'linear-gradient(135deg, #CEC1AD 0%, #E9DDCA 100%)',
+    'https://commons.wikimedia.org/wiki/Special:FilePath/Manila%2C_Manila_Cathedral%2C_Philippines.jpg',
+    8.7,
+    true
+  ),
+  (
+    '673c6157-9aef-4d6f-8ee8-3af9b692de44',
+    'San Agustin Church Manila',
+    'Church / Heritage Ceremony Venue',
+    'General Luna Street, Intramuros, Manila 1002, Philippines',
+    'Manila',
+    'Intramuros',
+    700,
+    430,
+    4.85,
+    1600,
+    'indoor',
+    array['Church', 'Heritage', 'Catholic', 'Wedding'],
+    'UNESCO-listed Intramuros church suited for heritage Catholic ceremonies, intimate weddings, and cultural milestone rites.',
+    'linear-gradient(135deg, #D1C0AA 0%, #EADDCB 100%)',
+    'https://commons.wikimedia.org/wiki/Special:FilePath/San_Agustin_Church_-_Intramuros.jpg',
+    8.9,
+    true
+  )
+on conflict (id) do update set
+  name = excluded.name,
+  type = excluded.type,
+  address = excluded.address,
+  city = excluded.city,
+  area = excluded.area,
+  capacity = excluded.capacity,
+  price_per_head = excluded.price_per_head,
+  rating = excluded.rating,
+  review_count = excluded.review_count,
+  setting = excluded.setting,
+  tags = excluded.tags,
+  description = excluded.description,
+  image_color = excluded.image_color,
+  image_url = excluded.image_url,
+  base_distance_km = excluded.base_distance_km,
+  is_active = excluded.is_active,
+  updated_at = timezone('utc', now());
+
 drop function if exists public.recommend_venues_for_event(uuid, integer);
 create or replace function public.recommend_venues_for_event(
   p_event_id uuid,
@@ -835,6 +1033,7 @@ returns table (
   price_per_head integer,
   tags text[],
   image_color text,
+  image_url text,
   distance_km numeric,
   total_estimate integer,
   match_score numeric,
@@ -981,6 +1180,7 @@ begin
     ranked.price_per_head,
     ranked.tags,
     ranked.image_color,
+    ranked.image_url,
     ranked.distance_km,
     ranked.total_estimate,
     round(

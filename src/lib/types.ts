@@ -56,6 +56,7 @@ export interface VenueResult {
   pricePerHead: number;
   totalEstimate: number;
   imageGradient: string;
+  imageUrl?: string;
   tags: string[];
   aiNote: string;
   match: number;

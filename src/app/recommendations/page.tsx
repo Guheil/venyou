@@ -40,6 +40,7 @@ interface RecommendedVenueRow {
   price_per_head: number;
   tags: string[] | null;
   image_color: string | null;
+  image_url: string | null;
   distance_km: number | null;
   total_estimate: number | null;
   match_score: number | null;
@@ -152,6 +153,7 @@ function mapRecommendedVenue(row: RecommendedVenueRow): Venue {
     imageColor:
       row.image_color?.trim() ||
       "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
+    imageUrl: row.image_url?.trim() || undefined,
     tags: row.tags ?? [],
     aiNote: row.ai_note ?? "Venue fit based on your event profile.",
     match: Math.max(0, Math.min(100, Math.round(Number(row.match_score ?? 0)))),

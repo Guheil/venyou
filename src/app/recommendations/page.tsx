@@ -84,6 +84,17 @@ interface AiInsightsResponsePayload {
   insights: Array<{ id: string; insight: string }>;
 }
 
+type VenueSortOption =
+  | "match_desc"
+  | "price_asc"
+  | "price_desc"
+  | "rating_desc"
+  | "distance_asc";
+
+type VenueBudgetFilter = "all" | "within_budget" | "over_budget";
+
+type VenueCapacityFilter = "all" | "fits_event" | "spacious";
+
 function buildAiInsightsPayload(
   event: SavedEvent,
   rows: RecommendedVenueRow[]
@@ -265,6 +276,12 @@ function RecommendationsPageContent() {
   }>({ eventId: null, venueIds: {} });
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [mapModalOpen, setMapModalOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<VenueSortOption>("match_desc");
+  const [budgetFilter, setBudgetFilter] = useState<VenueBudgetFilter>("all");
+  const [capacityFilter, setCapacityFilter] = useState<VenueCapacityFilter>("all");
+  const [minimumRating, setMinimumRating] = useState<"0" | "4" | "4.5">("0");
+  const [selectedTag, setSelectedTag] = useState<string>("all");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -447,40 +464,6 @@ function RecommendationsPageContent() {
     }
   };
 
-  const costSummary = useMemo(() => {
-    if (venues.length === 0) return null;
-
-    return {
-      lowestPerHead: Math.min(...venues.map((venue) => venue.pricePerHead)),
-      highestPerHead: Math.max(...venues.map((venue) => venue.pricePerHead)),
-      avgPerHead: Math.round(
-        venues.reduce((sum, venue) => sum + venue.pricePerHead, 0) / venues.length
-      ),
-      lowestTotal: Math.min(...venues.map((venue) => venue.totalEstimate)),
-      highestTotal: Math.max(...venues.map((venue) => venue.totalEstimate)),
-    };
-  }, [venues]);
-
-  const quickFilterTags = useMemo(() => {
-    const tagCounts = new Map<string, number>();
-    venues.forEach((venue) => {
-      venue.tags.forEach((tag) => {
-        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-      });
-    });
-
-    const topTags = [...tagCounts.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 6)
-      .map(([tag]) => tag);
-
-    if (costSummary) {
-      topTags.push(`Under ${formatPeso(costSummary.avgPerHead)}/head`);
-    }
-
-    return topTags;
-  }, [costSummary, venues]);
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -496,6 +479,121 @@ function RecommendationsPageContent() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [mapModalOpen]);
+
+  const quickFilterTags = useMemo(() => {
+    const tagCounts = new Map<string, number>();
+    venues.forEach((venue) => {
+      venue.tags.forEach((tag) => {
+        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+      });
+    });
+
+    return [...tagCounts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 8)
+      .map(([tag]) => tag);
+  }, [venues]);
+
+  useEffect(() => {
+    if (selectedTag !== "all" && !quickFilterTags.includes(selectedTag)) {
+      setSelectedTag("all");
+    }
+  }, [quickFilterTags, selectedTag]);
+
+  const visibleVenues = useMemo(() => {
+    const minRatingValue = Number(minimumRating);
+    const filtered = venues.filter((venue) => {
+      const isWithinBudget =
+        selectedEvent?.budgetType === "per-head"
+          ? venue.pricePerHead <= selectedEvent.budgetMax
+          : venue.totalEstimate <= (selectedEvent?.budgetMax ?? 0);
+
+      if (budgetFilter === "within_budget" && !isWithinBudget) {
+        return false;
+      }
+      if (budgetFilter === "over_budget" && isWithinBudget) {
+        return false;
+      }
+
+      if (capacityFilter === "fits_event" && selectedEvent) {
+        if (venue.capacity < selectedEvent.pax) return false;
+      }
+      if (capacityFilter === "spacious" && selectedEvent) {
+        if (venue.capacity < Math.ceil(selectedEvent.pax * 1.3)) return false;
+      }
+
+      if (venue.rating < minRatingValue) {
+        return false;
+      }
+
+      if (selectedTag !== "all" && !venue.tags.includes(selectedTag)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const sorted = [...filtered];
+    sorted.sort((left, right) => {
+      if (sortBy === "price_asc") {
+        return left.pricePerHead - right.pricePerHead;
+      }
+      if (sortBy === "price_desc") {
+        return right.pricePerHead - left.pricePerHead;
+      }
+      if (sortBy === "rating_desc") {
+        return right.rating - left.rating || right.match - left.match;
+      }
+      if (sortBy === "distance_asc") {
+        return left.distance - right.distance || right.match - left.match;
+      }
+
+      return (
+        right.match - left.match ||
+        left.distance - right.distance ||
+        right.rating - left.rating
+      );
+    });
+
+    return sorted;
+  }, [
+    budgetFilter,
+    capacityFilter,
+    minimumRating,
+    selectedEvent,
+    selectedTag,
+    sortBy,
+    venues,
+  ]);
+
+  const costSummary = useMemo(() => {
+    if (visibleVenues.length === 0) return null;
+
+    return {
+      lowestPerHead: Math.min(...visibleVenues.map((venue) => venue.pricePerHead)),
+      highestPerHead: Math.max(...visibleVenues.map((venue) => venue.pricePerHead)),
+      avgPerHead: Math.round(
+        visibleVenues.reduce((sum, venue) => sum + venue.pricePerHead, 0) /
+          visibleVenues.length
+      ),
+      lowestTotal: Math.min(...visibleVenues.map((venue) => venue.totalEstimate)),
+      highestTotal: Math.max(...visibleVenues.map((venue) => venue.totalEstimate)),
+    };
+  }, [visibleVenues]);
+
+  const activeFilterCount =
+    (budgetFilter !== "all" ? 1 : 0) +
+    (capacityFilter !== "all" ? 1 : 0) +
+    (minimumRating !== "0" ? 1 : 0) +
+    (selectedTag !== "all" ? 1 : 0);
+
+  const resetFilters = () => {
+    setSortBy("match_desc");
+    setBudgetFilter("all");
+    setCapacityFilter("all");
+    setMinimumRating("0");
+    setSelectedTag("all");
+  };
 
   if (!hydrated) {
     return (
@@ -555,25 +653,29 @@ function RecommendationsPageContent() {
 
   const backToEventHref = `${ROUTES.events}/${selectedEvent.id}`;
   const eventSummary = `${selectedEvent.occasion} - ${selectedEvent.city} - ${selectedEvent.pax} guests`;
-  const mapVenues = venues.map((venue) => ({
+  const mapVenues = visibleVenues.map((venue) => ({
     id: venue.id,
     name: venue.name,
     address: venue.address,
     city: venue.city ?? selectedEvent.city,
   }));
   const averageMatch =
-    venues.length > 0
-      ? Math.round(venues.reduce((sum, venue) => sum + venue.match, 0) / venues.length)
+    visibleVenues.length > 0
+      ? Math.round(
+          visibleVenues.reduce((sum, venue) => sum + venue.match, 0) /
+            visibleVenues.length
+        )
       : 0;
-  const budgetFitCount = venues.filter((venue) =>
+  const budgetFitCount = visibleVenues.filter((venue) =>
     selectedEvent.budgetType === "per-head"
       ? venue.pricePerHead <= selectedEvent.budgetMax
       : venue.totalEstimate <= selectedEvent.budgetMax
   ).length;
   const averageTotalEstimate =
-    venues.length > 0
+    visibleVenues.length > 0
       ? Math.round(
-          venues.reduce((sum, venue) => sum + venue.totalEstimate, 0) / venues.length
+          visibleVenues.reduce((sum, venue) => sum + venue.totalEstimate, 0) /
+            visibleVenues.length
         )
       : 0;
   const selectedEventDateLabel = selectedEvent.eventDate
@@ -606,7 +708,11 @@ function RecommendationsPageContent() {
                 </span>
               </div>
               <h1 className="text-3xl font-extrabold tracking-tight text-[#1A1817] sm:text-4xl">
-                {loading ? "Generating venue matches..." : `${venues.length} venue matches built around this brief.`}
+                {loading
+                  ? "Generating venue matches..."
+                  : activeFilterCount > 0
+                  ? `Showing ${visibleVenues.length} of ${venues.length} venue matches.`
+                  : `${venues.length} venue matches built around this brief.`}
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#6B6661] sm:text-base">
                 {eventSummary}. Review the best-fit shortlist, compare the spend range,
@@ -639,10 +745,21 @@ function RecommendationsPageContent() {
 
               <button
                 type="button"
+                onClick={() => setMapModalOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-[#D8D3C9] bg-white px-5 py-3 text-sm font-semibold text-[#1A1817] transition hover:border-[#2A6558] hover:text-[#2A6558]"
+              >
+                <Maximize2 size={15} />
+                Open Map
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((current) => !current)}
+                aria-expanded={filtersOpen}
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-[#D8D3C9] bg-white px-5 py-3 text-sm font-semibold text-[#1A1817] transition hover:border-[#2A6558] hover:text-[#2A6558]"
               >
                 <SlidersHorizontal size={15} />
-                Filter & Sort
+                Filter & Sort{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
               </button>
             </div>
           </div>
@@ -652,25 +769,29 @@ function RecommendationsPageContent() {
           <KpiCard
             icon={<Sparkles size={18} />}
             label="Match Count"
-            value={loading ? "-" : String(venues.length)}
+            value={loading ? "-" : String(visibleVenues.length)}
             detail="Active venues in the current recommendation set"
           />
           <KpiCard
             icon={<Target size={18} />}
             label="Average Match"
-            value={loading || venues.length === 0 ? "-" : `${averageMatch}%`}
+            value={loading || visibleVenues.length === 0 ? "-" : `${averageMatch}%`}
             detail="Average fit score across the visible shortlist"
           />
           <KpiCard
             icon={<Wallet size={18} />}
             label="Budget Fit"
-            value={loading ? "-" : `${budgetFitCount}/${venues.length || 0}`}
+            value={loading ? "-" : `${budgetFitCount}/${visibleVenues.length || 0}`}
             detail="Venues currently under your planning ceiling"
           />
           <KpiCard
             icon={<Users size={18} />}
             label="Avg Total Estimate"
-            value={loading || venues.length === 0 ? "-" : formatPeso(averageTotalEstimate)}
+            value={
+              loading || visibleVenues.length === 0
+                ? "-"
+                : formatPeso(averageTotalEstimate)
+            }
             detail={`For ${selectedEvent.pax.toLocaleString()} guests in ${selectedEvent.city}`}
           />
         </section>
@@ -685,13 +806,130 @@ function RecommendationsPageContent() {
                 action={
                   <button
                     type="button"
+                    onClick={() => setFiltersOpen((current) => !current)}
+                    aria-expanded={filtersOpen}
                     className="inline-flex items-center gap-2 rounded-full border border-[#D8D3C9] bg-white px-4 py-2 text-sm font-semibold text-[#1A1817] transition hover:border-[#2A6558] hover:text-[#2A6558]"
                   >
                     <SlidersHorizontal size={15} />
-                    Filter & Sort
+                    Filter & Sort{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
                   </button>
                 }
               />
+
+              {filtersOpen && (
+                <div className="mb-5 rounded-[20px] border border-[#E0DDD5] bg-[#FCFBF8] p-4 sm:p-5">
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <label className="text-xs font-medium text-[#6B6661]">
+                      Sort
+                      <select
+                        value={sortBy}
+                        onChange={(event) =>
+                          setSortBy(event.target.value as VenueSortOption)
+                        }
+                        className="mt-1 block w-full rounded-xl border border-[#D8D3C9] bg-white px-3 py-2 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
+                      >
+                        <option value="match_desc">Best match</option>
+                        <option value="price_asc">Price: low to high</option>
+                        <option value="price_desc">Price: high to low</option>
+                        <option value="rating_desc">Highest rating</option>
+                        <option value="distance_asc">Nearest first</option>
+                      </select>
+                    </label>
+
+                    <label className="text-xs font-medium text-[#6B6661]">
+                      Budget
+                      <select
+                        value={budgetFilter}
+                        onChange={(event) =>
+                          setBudgetFilter(event.target.value as VenueBudgetFilter)
+                        }
+                        className="mt-1 block w-full rounded-xl border border-[#D8D3C9] bg-white px-3 py-2 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
+                      >
+                        <option value="all">All budgets</option>
+                        <option value="within_budget">Within budget</option>
+                        <option value="over_budget">Over budget</option>
+                      </select>
+                    </label>
+
+                    <label className="text-xs font-medium text-[#6B6661]">
+                      Capacity
+                      <select
+                        value={capacityFilter}
+                        onChange={(event) =>
+                          setCapacityFilter(event.target.value as VenueCapacityFilter)
+                        }
+                        className="mt-1 block w-full rounded-xl border border-[#D8D3C9] bg-white px-3 py-2 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
+                      >
+                        <option value="all">All capacities</option>
+                        <option value="fits_event">
+                          Fits {selectedEvent.pax.toLocaleString()} guests
+                        </option>
+                        <option value="spacious">Spacious (30% extra room)</option>
+                      </select>
+                    </label>
+
+                    <label className="text-xs font-medium text-[#6B6661]">
+                      Minimum rating
+                      <select
+                        value={minimumRating}
+                        onChange={(event) =>
+                          setMinimumRating(event.target.value as "0" | "4" | "4.5")
+                        }
+                        className="mt-1 block w-full rounded-xl border border-[#D8D3C9] bg-white px-3 py-2 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20"
+                      >
+                        <option value="0">Any rating</option>
+                        <option value="4">4.0+</option>
+                        <option value="4.5">4.5+</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  {quickFilterTags.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6B6661]">
+                        Popular tags
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTag("all")}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                            selectedTag === "all"
+                              ? "border-[#2A6558] bg-[#2A6558] text-white"
+                              : "border-[#D8D3C9] bg-white text-[#1A1817] hover:border-[#2A6558] hover:text-[#2A6558]"
+                          }`}
+                        >
+                          All tags
+                        </button>
+                        {quickFilterTags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => setSelectedTag(tag)}
+                            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                              selectedTag === tag
+                                ? "border-[#2A6558] bg-[#2A6558] text-white"
+                                : "border-[#D8D3C9] bg-white text-[#1A1817] hover:border-[#2A6558] hover:text-[#2A6558]"
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      className="rounded-full border border-[#D8D3C9] bg-white px-4 py-2 text-xs font-semibold text-[#1A1817] transition hover:border-[#2A6558] hover:text-[#2A6558]"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {loading ? (
                 <div className="flex min-h-[320px] items-center justify-center rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8]">
@@ -713,10 +951,26 @@ function RecommendationsPageContent() {
                     Add more venue rows to `public.venues` or broaden the event constraints.
                   </p>
                 </div>
+              ) : visibleVenues.length === 0 ? (
+                <div className="rounded-[24px] border border-dashed border-[#E0DDD5] bg-[#FCFBF8] p-10 text-center">
+                  <p className="text-sm font-semibold text-[#1A1817]">
+                    No venues match these filters
+                  </p>
+                  <p className="mt-1 text-xs text-[#7C7671]">
+                    Try broadening filters or reset to view all recommendations.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="mt-4 rounded-full border border-[#D8D3C9] bg-white px-5 py-2 text-xs font-semibold text-[#1A1817] transition hover:border-[#2A6558] hover:text-[#2A6558]"
+                  >
+                    Reset filters
+                  </button>
+                </div>
               ) : (
                 <>
                   <div className="grid gap-6 sm:grid-cols-2">
-                    {venues.map((venue, index) => (
+                    {visibleVenues.map((venue, index) => (
                       <VenueCard
                         key={venue.id}
                         venue={venue}
@@ -737,7 +991,7 @@ function RecommendationsPageContent() {
                     ))}
                   </div>
 
-                  {venues.length >= 12 && (
+                  {visibleVenues.length >= 12 && (
                     <div className="mt-8 flex justify-center">
                       <button
                         type="button"

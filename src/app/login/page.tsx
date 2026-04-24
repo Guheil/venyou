@@ -7,11 +7,18 @@ import { Eye, EyeOff, Mail, Lock, ArrowRight, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useToast } from "@/lib/ToastContext";
 import { buildAuthRedirectUrl } from "@/lib/authRedirect";
+import { ROUTES } from "@/lib/routes";
 
 function sanitizeRedirectPath(nextPath: string | null) {
   if (!nextPath) return "/dashboard";
   if (!nextPath.startsWith("/")) return "/dashboard";
   if (nextPath.startsWith("//")) return "/dashboard";
+  if (nextPath === ROUTES.admin || nextPath.startsWith(`${ROUTES.admin}/`)) {
+    return "/dashboard";
+  }
+  if (nextPath === ROUTES.login || nextPath === ROUTES.register || nextPath.startsWith("/auth/")) {
+    return "/dashboard";
+  }
   return nextPath;
 }
 
@@ -71,8 +78,11 @@ function LoginPageContent() {
       return;
     }
 
+    const { data: adminProfile } = await supabase.rpc("current_admin_profile");
+    const isAdmin = Array.isArray(adminProfile) && adminProfile.length > 0;
+
     success("Signed in", "Welcome back to VenYOU.");
-    router.replace(redirectPath);
+    router.replace(isAdmin ? ROUTES.admin : redirectPath);
     router.refresh();
   };
 

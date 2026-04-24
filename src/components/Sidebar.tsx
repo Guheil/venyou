@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Modal from "@/components/Modal";
 import { useEventsContext } from "@/lib/EventsContext";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/lib/ToastContext";
 import { ROUTES } from "@/lib/routes";
+import { supabase } from "@/lib/supabase/client";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -25,9 +26,10 @@ import {
   MessageCircle,
   CalendarCheck,
   PieChart,
+  ShieldCheck,
 } from "lucide-react";
 
-const navItems = [
+const baseNavItems = [
   { label: "Dashboard", href: ROUTES.dashboard, icon: LayoutDashboard },
   { label: "My Events", href: ROUTES.events, icon: CalendarDays },
   { label: "Create Event", href: ROUTES.createEvent, icon: Plus },
@@ -39,6 +41,8 @@ const navItems = [
   { label: "Settings", href: ROUTES.settings, icon: Settings },
 ];
 
+const adminNavItem = { label: "Admin", href: ROUTES.admin, icon: ShieldCheck };
+
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -49,8 +53,33 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const recentEvents = events.slice(0, 3);
+  const navItems = isAdmin
+    ? [baseNavItems[0], adminNavItem, ...baseNavItems.slice(1)]
+    : baseNavItems;
+
+  useEffect(() => {
+    let active = true;
+
+    if (!user) {
+      setIsAdmin(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    void (async () => {
+      const { data, error } = await supabase.rpc("current_admin_profile");
+      if (!active) return;
+      setIsAdmin(!error && Array.isArray(data) && data.length > 0);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   const handleSignOut = async () => {
     setLoggingOut(true);

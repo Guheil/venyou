@@ -3,6 +3,13 @@ export const ROUTES = {
   login: "/login",
   register: "/register",
   dashboard: "/dashboard",
+  admin: "/admin",
+  adminRequests: "/admin/requests",
+  adminEvents: "/admin/events",
+  adminVenues: "/admin/venues",
+  adminVenueNew: "/admin/venues/new",
+  adminAnalytics: "/admin/analytics",
+  adminActivity: "/admin/activity",
   events: "/events",
   createEvent: "/create-event",
   analysis: "/cost-analysis",
@@ -18,6 +25,7 @@ export const ROUTES = {
 export const AUTH_ROUTE_PREFIXES = [ROUTES.login, ROUTES.register] as const;
 export const PROTECTED_ROUTE_PREFIXES = [
   ROUTES.dashboard,
+  ROUTES.admin,
   ROUTES.events,
   ROUTES.createEvent,
   ROUTES.analysis,

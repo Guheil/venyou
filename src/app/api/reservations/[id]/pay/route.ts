@@ -46,6 +46,13 @@ function makePaymentReference(paymentMethod: "cash" | "gcash") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
 
+function normalizePhilippineMobile(value: string | undefined): string | null {
+  if (!value || /[A-Za-z]/.test(value)) return null;
+
+  const digits = value.replace(/\D/g, "");
+  return /^09\d{9}$/.test(digits) ? digits : null;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -106,13 +113,13 @@ export async function POST(
 
   let gcashNumber: string | null = null;
   if (paymentMethod === "gcash") {
-    gcashNumber = body.gcashNumber?.replace(/\D/g, "") ?? "";
+    gcashNumber = normalizePhilippineMobile(body.gcashNumber);
 
-    if (gcashNumber.length < 10) {
+    if (!gcashNumber) {
       return NextResponse.json(
         {
           error:
-            "Please enter a valid GCash number (e.g. 09XX-XXX-XXXX) to continue.",
+            "Please enter a valid 11-digit GCash number. Letters are not allowed.",
         },
         { status: 400 }
       );

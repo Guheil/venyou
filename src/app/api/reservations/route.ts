@@ -22,6 +22,13 @@ export interface CreateReservationResult {
   conflict: boolean;
 }
 
+function normalizePhilippineMobile(value: string): string | null {
+  if (/[A-Za-z]/.test(value)) return null;
+
+  const digits = value.replace(/\D/g, "");
+  return /^09\d{9}$/.test(digits) ? digits : null;
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
@@ -78,11 +85,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Validate phone: must be a Philippine number (basic check)
-  const phoneDigits = contactPhone.replace(/\D/g, "");
-  if (phoneDigits.length < 10) {
+  const phoneDigits = normalizePhilippineMobile(contactPhone);
+  if (!phoneDigits) {
     return NextResponse.json(
-      { error: "Please enter a valid Philippine phone number." },
+      { error: "Please enter a valid 11-digit Philippine mobile number. Letters are not allowed." },
       { status: 400 }
     );
   }
@@ -98,7 +104,7 @@ export async function POST(req: NextRequest) {
     p_price_per_head: pricePerHead,
     p_total_amount: totalAmount,
     p_contact_name: contactName.trim(),
-    p_contact_phone: contactPhone.trim(),
+    p_contact_phone: phoneDigits,
     p_special_requests: specialRequests.trim(),
     p_payment_method: paymentMethod,
   });

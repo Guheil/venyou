@@ -94,6 +94,14 @@ function timeLabel(t: string): string {
   return TIME_OPTIONS.find((o) => o.value === t)?.label ?? t;
 }
 
+function digitsOnly(value: string, maxLength = 11): string {
+  return value.replace(/\D/g, "").slice(0, maxLength);
+}
+
+function isPhilippineMobile(value: string): boolean {
+  return /^09\d{9}$/.test(value);
+}
+
 // ─────────────────────────────────────────────────────────────
 // Step indicator
 // ─────────────────────────────────────────────────────────────
@@ -432,8 +440,8 @@ export default function ReserveVenuePage() {
     }
     if (!contactName.trim()) { setFieldError("Please enter the full name of the reservation holder."); return; }
     if (!contactPhone.trim()) { setFieldError("Please enter a Philippine mobile number (e.g. 0917-123-4567)."); return; }
-    const digits = contactPhone.replace(/\D/g, "");
-    if (digits.length < 10) {
+    const digits = digitsOnly(contactPhone);
+    if (!isPhilippineMobile(digits)) {
       setFieldError("That doesn't look like a valid number. Philippine mobile numbers are 11 digits (e.g. 0917-123-4567).");
       return;
     }
@@ -453,7 +461,7 @@ export default function ReserveVenuePage() {
           pricePerHead: venue!.price_per_head,
           totalAmount,
           contactName: contactName.trim(),
-          contactPhone: contactPhone.trim(),
+          contactPhone: digits,
           specialRequests: specialRequests.trim(),
           paymentMethod,
         }),
@@ -485,13 +493,15 @@ export default function ReserveVenuePage() {
   // ── Step 2 submit → confirm payment ──
   const handlePayment = async () => {
     setFieldError(null);
+    let normalizedGcashNumber = "";
 
     if (paymentMethod === "gcash") {
-      const d = gcashNumber.replace(/\D/g, "");
-      if (d.length < 10) {
+      const d = digitsOnly(gcashNumber);
+      if (!isPhilippineMobile(d)) {
         setFieldError("Please enter the mobile number linked to your GCash account (e.g. 0917-123-4567).");
         return;
       }
+      normalizedGcashNumber = d;
       if (!proofImage) {
         setFieldError("Please upload a screenshot of your GCash payment receipt before confirming your booking.");
         return;
@@ -504,7 +514,11 @@ export default function ReserveVenuePage() {
       const res = await fetch(`/api/reservations/${reservationId}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentMethod, gcashNumber, proofImageBase64: proofImage ?? undefined }),
+        body: JSON.stringify({
+          paymentMethod,
+          gcashNumber: normalizedGcashNumber,
+          proofImageBase64: proofImage ?? undefined,
+        }),
       });
 
       const json = (await res.json()) as {
@@ -797,9 +811,10 @@ export default function ReserveVenuePage() {
                   <Input
                     type="tel"
                     inputMode="numeric"
+                    maxLength={11}
                     placeholder="09XX-XXX-XXXX"
                     value={contactPhone}
-                    onChange={(e) => setContactPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                    onChange={(e) => setContactPhone(digitsOnly(e.target.value))}
                   />
                 </Field>
               </Section>
@@ -872,9 +887,11 @@ export default function ReserveVenuePage() {
                     >
                       <Input
                         type="tel"
+                        inputMode="numeric"
+                        maxLength={11}
                         placeholder="09XX-XXX-XXXX"
                         value={gcashNumber}
-                        onChange={(e) => setGcashNumber(e.target.value)}
+                        onChange={(e) => setGcashNumber(digitsOnly(e.target.value))}
                       />
                     </Field>
 

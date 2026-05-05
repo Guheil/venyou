@@ -6,6 +6,7 @@ export const ROUTES = {
   admin: "/admin",
   adminRequests: "/admin/requests",
   adminEvents: "/admin/events",
+  adminUsers: "/admin/users",
   adminVenues: "/admin/venues",
   adminVenueNew: "/admin/venues/new",
   adminAnalytics: "/admin/analytics",

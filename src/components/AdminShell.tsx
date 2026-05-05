@@ -15,6 +15,7 @@ import {
   Menu,
   Plus,
   ShieldCheck,
+  Users,
   X,
 } from "lucide-react";
 import AuthGuard from "@/components/AuthGuard";
@@ -31,6 +32,7 @@ const adminNavItems = [
   { label: "Overview", href: ROUTES.admin, icon: ShieldCheck },
   { label: "Requests", href: ROUTES.adminRequests, icon: Clock },
   { label: "Events", href: ROUTES.adminEvents, icon: CalendarCheck },
+  { label: "Users", href: ROUTES.adminUsers, icon: Users },
   { label: "Venues", href: ROUTES.adminVenues, icon: Building2 },
   { label: "Add Venue", href: ROUTES.adminVenueNew, icon: Plus },
   { label: "Analytics", href: ROUTES.adminAnalytics, icon: BarChart3 },

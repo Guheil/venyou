@@ -48,6 +48,7 @@ interface VenueRow {
   description: string;
   image_color: string | null;
   image_url: string | null;
+  gcash_number: string;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -100,6 +101,12 @@ function digitsOnly(value: string, maxLength = 11): string {
 
 function isPhilippineMobile(value: string): boolean {
   return /^09\d{9}$/.test(value);
+}
+
+function formatMobile(value: string): string {
+  const digits = digitsOnly(value);
+  if (digits.length !== 11) return value;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -241,6 +248,7 @@ function PayMethodCard({
   title,
   desc,
   badge,
+  disabled = false,
 }: {
   selected: boolean;
   onClick: () => void;
@@ -248,13 +256,17 @@ function PayMethodCard({
   title: string;
   desc: string;
   badge?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`relative flex flex-col gap-3 rounded-2xl border-2 p-5 text-left transition-all ${
-        selected
+        disabled
+          ? "cursor-not-allowed border-[#E0DDD5] bg-[#F8F6F1] opacity-70"
+          : selected
           ? "border-[#2A6558] bg-[#EAF2F0] shadow-md"
           : "border-[#E0DDD5] bg-white hover:border-[#2A6558]/50 hover:shadow-sm"
       }`}
@@ -348,11 +360,14 @@ export default function ReserveVenuePage() {
   const [referenceNumber, setReferenceNumber] = useState("");
   const [paymentRef, setPaymentRef] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedGcash, setCopiedGcash] = useState(false);
 
   const guestsNum = parseInt(guestCount, 10);
   const totalAmount = venue && !isNaN(guestsNum) && guestsNum > 0
     ? guestsNum * venue.price_per_head
     : 0;
+  const venueGcashNumber = venue?.gcash_number ?? "";
+  const canPayWithGcash = isPhilippineMobile(venueGcashNumber);
 
   // Load venue
   useEffect(() => {
@@ -361,7 +376,7 @@ export default function ReserveVenuePage() {
     void (async () => {
       const { data, error } = await supabase
         .from("venues")
-        .select("id,name,type,address,city,area,capacity,price_per_head,rating,review_count,setting,tags,description,image_color,image_url")
+        .select("id,name,type,address,city,area,capacity,price_per_head,rating,review_count,setting,tags,description,image_color,image_url,gcash_number")
         .eq("id", venueId)
         .eq("is_active", true)
         .maybeSingle();
@@ -445,6 +460,10 @@ export default function ReserveVenuePage() {
       setFieldError("That doesn't look like a valid number. Philippine mobile numbers are 11 digits (e.g. 0917-123-4567).");
       return;
     }
+    if (paymentMethod === "gcash" && !canPayWithGcash) {
+      setFieldError("This venue does not have a GCash receiving number yet. Please choose cash or contact the admin.");
+      return;
+    }
 
     setBusy(true);
     try {
@@ -496,6 +515,10 @@ export default function ReserveVenuePage() {
     let normalizedGcashNumber = "";
 
     if (paymentMethod === "gcash") {
+      if (!canPayWithGcash) {
+        setFieldError("This venue does not have a GCash receiving number yet. Please choose cash or contact the admin.");
+        return;
+      }
       const d = digitsOnly(gcashNumber);
       if (!isPhilippineMobile(d)) {
         setFieldError("Please enter the mobile number linked to your GCash account (e.g. 0917-123-4567).");
@@ -543,6 +566,14 @@ export default function ReserveVenuePage() {
     void navigator.clipboard.writeText(referenceNumber).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const handleCopyGcashNumber = () => {
+    if (!venueGcashNumber) return;
+    void navigator.clipboard.writeText(venueGcashNumber).then(() => {
+      setCopiedGcash(true);
+      setTimeout(() => setCopiedGcash(false), 2500);
     });
   };
 
@@ -869,11 +900,23 @@ export default function ReserveVenuePage() {
                   />
                   <PayMethodCard
                     selected={paymentMethod === "gcash"}
-                    onClick={() => setPaymentMethod("gcash")}
+                    onClick={() => {
+                      if (!canPayWithGcash) {
+                        setFieldError("This venue does not have a GCash receiving number yet. Please choose cash or contact the admin.");
+                        return;
+                      }
+                      setFieldError(null);
+                      setPaymentMethod("gcash");
+                    }}
+                    disabled={!canPayWithGcash}
                     icon={<Smartphone size={22} className="text-blue-500" />}
                     title="Pay via GCash"
-                    desc="Upload your receipt screenshot so an admin can verify the payment."
-                    badge="Proof required"
+                    desc={
+                      canPayWithGcash
+                        ? "Send payment to this venue's GCash number, then upload your receipt."
+                        : "GCash is unavailable until this venue has a receiving number."
+                    }
+                    badge={canPayWithGcash ? "Proof required" : "Not configured"}
                   />
                 </div>
 
@@ -901,8 +944,29 @@ export default function ReserveVenuePage() {
                         <p className="text-sm font-semibold text-blue-800 mb-1">
                           How to complete your GCash payment
                         </p>
+                        <div className="mb-3 rounded-xl border border-blue-200 bg-white p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-blue-600">
+                            Send payment to
+                          </p>
+                          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-sm font-extrabold text-[#1A1817]">{venue.name}</p>
+                              <p className="font-mono text-lg font-extrabold tracking-wide text-blue-700">
+                                {formatMobile(venueGcashNumber)}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleCopyGcashNumber}
+                              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-700 transition hover:border-blue-400"
+                            >
+                              {copiedGcash ? <Check size={13} /> : <Copy size={13} />}
+                              {copiedGcash ? "Copied" : "Copy number"}
+                            </button>
+                          </div>
+                        </div>
                         <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside leading-relaxed">
-                          <li>Open your <strong>GCash app</strong> and send <strong>{formatPeso(totalAmount)}</strong></li>
+                          <li>Open your <strong>GCash app</strong> and send <strong>{formatPeso(totalAmount)}</strong> to <strong>{formatMobile(venueGcashNumber)}</strong></li>
                           <li>After paying, <strong>take a screenshot</strong> of the GCash payment confirmation/receipt</li>
                           <li>Upload the screenshot below to submit your payment for admin review</li>
                         </ol>
@@ -1039,6 +1103,9 @@ export default function ReserveVenuePage() {
                   label="Payment Reference"
                   value={`${paymentMethod === "gcash" ? "GCash" : "Cash"} - ${paymentRef}`}
                 />
+                {paymentMethod === "gcash" && (
+                  <SummaryRow label="Paid to GCash" value={formatMobile(venueGcashNumber)} />
+                )}
                 <SummaryRow label="Total Amount" value={formatPeso(totalAmount)} bold />
               </Section>
 
@@ -1065,7 +1132,7 @@ export default function ReserveVenuePage() {
                     <>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">1</span>
-                        GCash payment of <strong>{formatPeso(totalAmount)}</strong> was submitted with payment reference <strong>{paymentRef}</strong>.
+                        GCash payment of <strong>{formatPeso(totalAmount)}</strong> to <strong>{formatMobile(venueGcashNumber)}</strong> was submitted with payment reference <strong>{paymentRef}</strong>.
                       </li>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">2</span>
@@ -1142,16 +1209,18 @@ export default function ReserveVenuePage() {
               <button
                 type="button"
                 onClick={handlePayment}
-                disabled={busy || (paymentMethod === "gcash" && !proofImage)}
+                disabled={busy || (paymentMethod === "gcash" && (!canPayWithGcash || !proofImage))}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3.5 text-sm font-semibold text-white hover:bg-[#215249] disabled:opacity-60 transition-colors"
               >
                 {busy ? <Loader2 size={15} className="animate-spin" /> : null}
                 {busy
                   ? "Processing…"
                   : paymentMethod === "gcash"
-                  ? proofImage
-                    ? "Submit GCash for Review"
-                    : "Upload receipt to continue"
+                  ? !canPayWithGcash
+                    ? "GCash unavailable for this venue"
+                    : proofImage
+                      ? "Submit GCash for Review"
+                      : "Upload receipt to continue"
                   : "Submit Cash for Review"}
                 {!busy && <ArrowRight size={15} />}
               </button>

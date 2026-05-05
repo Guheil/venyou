@@ -50,14 +50,14 @@ export const RESERVATION_SELECT = `
   payment_reference, reservation_status, reference_number,
   expires_at, payment_confirmed_at, admin_note,
   payment_proof_url, admin_payment_type,
-  venues ( name, type, address, city, area, image_color ),
+  venues ( name, type, address, city, area, image_color, gcash_number ),
   events ( event_name, occasion, city )
 `;
 
 export const VENUE_SELECT = `
   id, created_at, updated_at, name, type, address, city, area,
   capacity, price_per_head, rating, review_count, setting,
-  tags, description, image_color, image_url, base_distance_km, is_active
+  tags, description, image_color, image_url, base_distance_km, gcash_number, is_active
 `;
 
 export const EVENT_SELECT = `
@@ -74,6 +74,7 @@ interface ReservationVenueJoin {
   city: string;
   area: string;
   image_color: string | null;
+  gcash_number?: string | null;
 }
 
 interface ReservationEventJoin {
@@ -146,6 +147,7 @@ export interface AdminReservation {
   venueCity: string;
   venueArea: string;
   venueImageColor?: string;
+  venueGcashNumber: string;
   eventName: string;
   eventOccasion: string;
   eventCity: string;
@@ -170,6 +172,7 @@ export interface AdminVenueRow {
   image_color: string;
   image_url: string;
   base_distance_km: number;
+  gcash_number: string;
   is_active: boolean;
 }
 
@@ -192,6 +195,7 @@ export interface AdminVenue {
   imageColor: string;
   imageUrl: string;
   baseDistanceKm: number;
+  gcashNumber: string;
   isActive: boolean;
 }
 
@@ -297,6 +301,7 @@ export function mapReservationRow(row: AdminReservationRow): AdminReservation {
     venueCity: venue?.city ?? "",
     venueArea: venue?.area ?? "",
     venueImageColor: venue?.image_color ?? undefined,
+    venueGcashNumber: venue?.gcash_number ?? "",
     eventName: event?.event_name ?? "Untitled event",
     eventOccasion: event?.occasion ?? "Event",
     eventCity: event?.city ?? "",
@@ -323,6 +328,7 @@ export function mapVenueRow(row: AdminVenueRow): AdminVenue {
     imageColor: row.image_color,
     imageUrl: row.image_url,
     baseDistanceKm: Number(row.base_distance_km),
+    gcashNumber: row.gcash_number ?? "",
     isActive: row.is_active,
   };
 }

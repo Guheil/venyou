@@ -110,6 +110,7 @@ export interface VenueReservation {
   venueAddress?: string;
   venueImageColor?: string;
   venueType?: string;
+  venueGcashNumber?: string;
 }
 
 /** Shape returned by the Supabase SELECT with venue join */
@@ -143,11 +144,13 @@ export interface VenueReservationRow {
     address: string;
     image_color: string | null;
     type: string;
+    gcash_number?: string | null;
   } | {
     name: string;
     address: string;
     image_color: string | null;
     type: string;
+    gcash_number?: string | null;
   }[] | null;
 }
 
@@ -183,5 +186,6 @@ export function mapReservationRow(row: VenueReservationRow): VenueReservation {
     venueAddress: venueData?.address,
     venueImageColor: venueData?.image_color ?? undefined,
     venueType: venueData?.type,
+    venueGcashNumber: venueData?.gcash_number ?? "",
   };
 }

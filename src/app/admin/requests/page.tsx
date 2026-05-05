@@ -8,9 +8,11 @@ import {
   AdminMetricCard,
   AdminPanel,
   AdminSectionHeader,
+  AdminSortSelect,
   AdminStatusPill,
 } from "@/components/admin/AdminUI";
 import {
+  type AdminReservation,
   type PaymentMethod,
   type ReservationStatus,
   formatAdminCompactNumber,
@@ -43,6 +45,7 @@ import {
 } from "lucide-react";
 
 type RequestFilter = "all" | ReservationStatus;
+type RequestSort = "latest" | "oldest" | "event_date" | "amount_desc" | "amount_asc";
 
 const filters: { key: RequestFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -51,10 +54,33 @@ const filters: { key: RequestFilter; label: string }[] = [
   { key: "cancelled", label: "Cancelled" },
 ];
 
+const requestSortOptions: { value: RequestSort; label: string }[] = [
+  { value: "latest", label: "Latest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "event_date", label: "Event date" },
+  { value: "amount_desc", label: "Amount high to low" },
+  { value: "amount_asc", label: "Amount low to high" },
+];
+
+function toTime(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareRequests(left: AdminReservation, right: AdminReservation, sort: RequestSort) {
+  if (sort === "oldest") return toTime(left.createdAt) - toTime(right.createdAt);
+  if (sort === "event_date") return left.eventDate.localeCompare(right.eventDate);
+  if (sort === "amount_desc") return right.totalAmount - left.totalAmount;
+  if (sort === "amount_asc") return left.totalAmount - right.totalAmount;
+  return toTime(right.createdAt) - toTime(left.createdAt);
+}
+
 export default function AdminRequestsPage() {
   const { accessState, loadingData, refreshData, reservations, summary } = useAdminData();
   const { success, error: showError } = useToast();
   const [filter, setFilter] = useState<RequestFilter>("all");
+  const [sortOrder, setSortOrder] = useState<RequestSort>("latest");
   const [searchQuery, setSearchQuery] = useState("");
   const [paymentRefs, setPaymentRefs] = useState<Record<string, string>>({});
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
@@ -65,18 +91,20 @@ export default function AdminRequestsPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    return reservations.filter((reservation) => {
-      const matchesFilter = filter === "all" || reservation.reservationStatus === filter;
-      const matchesSearch =
-        !q ||
-        reservation.referenceNumber.toLowerCase().includes(q) ||
-        reservation.contactName.toLowerCase().includes(q) ||
-        reservation.venueName.toLowerCase().includes(q) ||
-        reservation.contactPhone.toLowerCase().includes(q) ||
-        reservation.eventName.toLowerCase().includes(q);
-      return matchesFilter && matchesSearch;
-    });
-  }, [filter, searchQuery, reservations]);
+    return reservations
+      .filter((reservation) => {
+        const matchesFilter = filter === "all" || reservation.reservationStatus === filter;
+        const matchesSearch =
+          !q ||
+          reservation.referenceNumber.toLowerCase().includes(q) ||
+          reservation.contactName.toLowerCase().includes(q) ||
+          reservation.venueName.toLowerCase().includes(q) ||
+          reservation.contactPhone.toLowerCase().includes(q) ||
+          reservation.eventName.toLowerCase().includes(q);
+        return matchesFilter && matchesSearch;
+      })
+      .sort((left, right) => compareRequests(left, right, sortOrder));
+  }, [filter, searchQuery, reservations, sortOrder]);
 
   const selectedReservation = useMemo(
     () => reservations.find((r) => r.id === selectedId) ?? null,
@@ -279,6 +307,11 @@ export default function AdminRequestsPage() {
                 className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
               />
             </div>
+            <AdminSortSelect
+              value={sortOrder}
+              onChange={setSortOrder}
+              options={requestSortOptions}
+            />
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {filters.map((item) => (
@@ -538,11 +571,18 @@ export default function AdminRequestsPage() {
                             mono
                           />
                           {selectedReservation.paymentMethod === "gcash" && (
-                            <InfoRow
-                              label="GCash number"
-                              value={selectedReservation.gcashNumber ?? "Not provided"}
-                              icon={<Phone size={14} />}
-                            />
+                            <>
+                              <InfoRow
+                                label="Venue GCash receiving number"
+                                value={selectedReservation.venueGcashNumber || "Not configured"}
+                                icon={<Smartphone size={14} />}
+                              />
+                              <InfoRow
+                                label="Customer GCash number"
+                                value={selectedReservation.gcashNumber ?? "Not provided"}
+                                icon={<Phone size={14} />}
+                              />
+                            </>
                           )}
                           <InfoRow
                             label="Confirmed"

@@ -78,6 +78,29 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (paymentMethod === "gcash") {
+    const { data: venuePayment, error: venuePaymentError } = await supabase
+      .from("venues")
+      .select("gcash_number")
+      .eq("id", venueId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    const venueGcashNumber = normalizePhilippineMobile(
+      (venuePayment as { gcash_number?: string | null } | null)?.gcash_number ?? ""
+    );
+
+    if (venuePaymentError || !venuePayment || !venueGcashNumber) {
+      return NextResponse.json(
+        {
+          error:
+            "This venue does not have a GCash receiving number yet. Please choose cash or contact the admin.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   if (guestCount < 1 || pricePerHead < 0 || totalAmount < 0 || durationHours < 1) {
     return NextResponse.json(
       { error: "Invalid numeric values." },

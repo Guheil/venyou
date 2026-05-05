@@ -75,7 +75,7 @@ export async function POST(
 
   const { data: reservation, error: fetchError } = await supabase
     .from("venue_reservations")
-    .select("id, user_id, payment_method, reservation_status, payment_status")
+    .select("id, user_id, payment_method, reservation_status, payment_status, venues ( gcash_number )")
     .eq("id", reservationId)
     .maybeSingle();
 
@@ -113,6 +113,22 @@ export async function POST(
 
   let gcashNumber: string | null = null;
   if (paymentMethod === "gcash") {
+    const venueJoin = (reservation as {
+      venues?: { gcash_number?: string | null } | { gcash_number?: string | null }[] | null;
+    }).venues;
+    const venueData = Array.isArray(venueJoin) ? venueJoin[0] ?? null : venueJoin ?? null;
+    const venueGcashNumber = normalizePhilippineMobile(venueData?.gcash_number ?? "");
+
+    if (!venueGcashNumber) {
+      return NextResponse.json(
+        {
+          error:
+            "This venue does not have a GCash receiving number yet. Please choose cash or contact the admin.",
+        },
+        { status: 400 }
+      );
+    }
+
     gcashNumber = normalizePhilippineMobile(body.gcashNumber);
 
     if (!gcashNumber) {

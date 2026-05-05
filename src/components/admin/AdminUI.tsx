@@ -53,6 +53,35 @@ export function AdminSectionHeader({
   );
 }
 
+export function AdminSortSelect<T extends string>({
+  label = "Sort",
+  value,
+  onChange,
+  options,
+}: {
+  label?: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: readonly { value: T; label: string }[];
+}) {
+  return (
+    <label className="flex h-10 shrink-0 items-center gap-2 rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-3 pr-2 text-xs font-semibold text-[#7C7671]">
+      <span>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+        className="h-8 min-w-36 rounded-lg bg-transparent text-sm font-bold text-[#1A1817] outline-none"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function AdminMetricCard({
   icon,
   label,

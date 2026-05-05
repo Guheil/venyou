@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import AdminShell from "@/components/AdminShell";
 import {
@@ -8,6 +9,7 @@ import {
   AdminMetricCard,
   AdminPanel,
   AdminSectionHeader,
+  AdminSortSelect,
 } from "@/components/admin/AdminUI";
 import {
   type AdminReservation,
@@ -35,12 +37,39 @@ import {
 
 type ViewMode = "list" | "calendar";
 type EventFilter = "all" | "upcoming" | "past";
+type EventSort = "latest" | "event_date_asc" | "event_date_desc" | "amount_desc" | "guests_desc";
 
 const filters: { key: EventFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "upcoming", label: "Upcoming" },
   { key: "past", label: "Past" },
 ];
+
+const eventSortOptions: { value: EventSort; label: string }[] = [
+  { value: "latest", label: "Latest" },
+  { value: "event_date_asc", label: "Event date soonest" },
+  { value: "event_date_desc", label: "Event date latest" },
+  { value: "amount_desc", label: "Amount high to low" },
+  { value: "guests_desc", label: "Most guests" },
+];
+
+function toTime(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareEvents(left: AdminReservation, right: AdminReservation, sort: EventSort) {
+  if (sort === "event_date_asc") return left.eventDate.localeCompare(right.eventDate);
+  if (sort === "event_date_desc") return right.eventDate.localeCompare(left.eventDate);
+  if (sort === "amount_desc") return right.totalAmount - left.totalAmount;
+  if (sort === "guests_desc") return right.guestCount - left.guestCount;
+
+  return (
+    toTime(right.paymentConfirmedAt ?? right.updatedAt) -
+    toTime(left.paymentConfirmedAt ?? left.updatedAt)
+  );
+}
 
 function dateKey(date: Date) {
   const year = date.getFullYear();
@@ -58,7 +87,10 @@ function monthLabel(date: Date) {
 
 function EventCard({ event }: { event: AdminReservation }) {
   return (
-    <article className="overflow-hidden rounded-[24px] border border-[#E0DDD5] bg-white shadow-sm">
+    <Link
+      href={`/admin/events/${event.id}`}
+      className="group block overflow-hidden rounded-[24px] border border-[#E0DDD5] bg-white shadow-sm outline-none transition hover:-translate-y-0.5 hover:border-[#2A6558] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#2A6558] focus-visible:ring-offset-2"
+    >
       <div
         className="h-1.5 w-full"
         style={{
@@ -110,8 +142,12 @@ function EventCard({ event }: { event: AdminReservation }) {
         <p className="mt-4 text-[11px] text-[#7C7671]">
           Confirmed {event.paymentConfirmedAt ? formatAdminDateTime(event.paymentConfirmedAt) : "by admin"}.
         </p>
+        <p className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#2A6558]">
+          View event details
+          <ChevronRight size={13} className="transition group-hover:translate-x-0.5" />
+        </p>
       </div>
-    </article>
+    </Link>
   );
 }
 
@@ -128,6 +164,7 @@ export default function AdminEventsPage() {
   const { accessState, loadingData, refreshData, reservations, summary } = useAdminData();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [filter, setFilter] = useState<EventFilter>("all");
+  const [sortOrder, setSortOrder] = useState<EventSort>("latest");
   const [searchQuery, setSearchQuery] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
@@ -138,40 +175,40 @@ export default function AdminEventsPage() {
 
   const confirmedEvents = useMemo(
     () =>
-      reservations
-        .filter((reservation) => reservation.reservationStatus === "confirmed")
-        .sort((left, right) => left.eventDate.localeCompare(right.eventDate)),
+      reservations.filter((reservation) => reservation.reservationStatus === "confirmed"),
     [reservations]
   );
 
   const searchedEvents = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
 
-    return confirmedEvents.filter((event) => {
-      const matchesFilter =
-        filter === "all" ||
-        (filter === "upcoming" && event.eventDate >= today) ||
-        (filter === "past" && event.eventDate < today);
+    return confirmedEvents
+      .filter((event) => {
+        const matchesFilter =
+          filter === "all" ||
+          (filter === "upcoming" && event.eventDate >= today) ||
+          (filter === "past" && event.eventDate < today);
 
-      const matchesSearch =
-        !q ||
-        event.eventName.toLowerCase().includes(q) ||
-        event.contactName.toLowerCase().includes(q) ||
-        event.venueName.toLowerCase().includes(q) ||
-        event.referenceNumber.toLowerCase().includes(q) ||
-        event.eventOccasion.toLowerCase().includes(q);
+        const matchesSearch =
+          !q ||
+          event.eventName.toLowerCase().includes(q) ||
+          event.contactName.toLowerCase().includes(q) ||
+          event.venueName.toLowerCase().includes(q) ||
+          event.referenceNumber.toLowerCase().includes(q) ||
+          event.eventOccasion.toLowerCase().includes(q);
 
-      return matchesFilter && matchesSearch;
-    });
-  }, [confirmedEvents, filter, searchQuery, today]);
+        return matchesFilter && matchesSearch;
+      })
+      .sort((left, right) => compareEvents(left, right, sortOrder));
+  }, [confirmedEvents, filter, searchQuery, sortOrder, today]);
 
   const eventsByDate = useMemo(
     () =>
-      confirmedEvents.reduce<Record<string, AdminReservation[]>>((map, event) => {
+      searchedEvents.reduce<Record<string, AdminReservation[]>>((map, event) => {
         map[event.eventDate] = [...(map[event.eventDate] ?? []), event];
         return map;
       }, {}),
-    [confirmedEvents]
+    [searchedEvents]
   );
 
   const calendarCells = useMemo(() => {
@@ -308,6 +345,11 @@ export default function AdminEventsPage() {
                 className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
               />
             </div>
+            <AdminSortSelect
+              value={sortOrder}
+              onChange={setSortOrder}
+              options={eventSortOptions}
+            />
             <div className="flex gap-2 overflow-x-auto pb-1">
               {filters.map((item) => (
                 <button
@@ -401,9 +443,7 @@ export default function AdminEventsPage() {
                 <div className="grid grid-cols-7 gap-2">
                   {calendarCells.map((day) => {
                     const key = dateKey(day);
-                    const dayEvents = (eventsByDate[key] ?? []).filter((event) =>
-                      searchedEvents.some((searched) => searched.id === event.id)
-                    );
+                    const dayEvents = eventsByDate[key] ?? [];
                     const inMonth = day.getMonth() === calendarMonth.getMonth();
                     const isToday = key === today;
 
@@ -428,9 +468,10 @@ export default function AdminEventsPage() {
                         </div>
                         <div className="space-y-1">
                           {dayEvents.slice(0, 3).map((event) => (
-                            <div
+                            <Link
                               key={event.id}
-                              className="rounded-lg border border-[#C8E0DA] bg-[#F8FBFA] px-2 py-1"
+                              href={`/admin/events/${event.id}`}
+                              className="block rounded-lg border border-[#C8E0DA] bg-[#F8FBFA] px-2 py-1 outline-none transition hover:border-[#2A6558] hover:bg-[#EAF2F0] focus-visible:ring-2 focus-visible:ring-[#2A6558]"
                             >
                               <p className="truncate text-[11px] font-bold text-[#1A1817]">
                                 {event.eventName}
@@ -438,7 +479,7 @@ export default function AdminEventsPage() {
                               <p className="truncate text-[10px] text-[#7C7671]">
                                 {formatAdminTime(event.startTime)} - {event.venueName}
                               </p>
-                            </div>
+                            </Link>
                           ))}
                           {dayEvents.length > 3 && (
                             <p className="text-[10px] font-semibold text-[#2A6558]">

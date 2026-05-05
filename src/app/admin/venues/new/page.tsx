@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import AdminShell from "@/components/AdminShell";
 import {
@@ -20,6 +20,7 @@ import {
   ImageIcon,
   Loader2,
   Plus,
+  Smartphone,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -38,6 +39,7 @@ interface NewVenueForm {
   setting: VenueSetting;
   tags: string;
   description: string;
+  gcashNumber: string;
   imageUrl: string;
   baseDistanceKm: string;
 }
@@ -120,12 +122,21 @@ const emptyForm: NewVenueForm = {
   setting: "indoor",
   tags: "",
   description: "",
+  gcashNumber: "",
   imageUrl: "",
   baseDistanceKm: "3",
 };
 
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const maxImageSize = 5 * 1024 * 1024;
+
+function digitsOnly(value: string, maxLength = 11) {
+  return value.replace(/\D/g, "").slice(0, maxLength);
+}
+
+function isPhilippineMobile(value: string) {
+  return /^09\d{9}$/.test(value);
+}
 
 export default function AdminNewVenuePage() {
   const router = useRouter();
@@ -204,12 +215,14 @@ export default function AdminNewVenuePage() {
     const rating = Number(form.rating);
     const reviewCount = Number(form.reviewCount);
     const baseDistanceKm = Number(form.baseDistanceKm);
+    const venueGcashNumber = digitsOnly(form.gcashNumber);
 
     if (
       !form.name.trim() ||
       !form.type.trim() ||
       !form.address.trim() ||
       !form.city.trim() ||
+      !isPhilippineMobile(venueGcashNumber) ||
       !Number.isFinite(capacity) ||
       !Number.isFinite(pricePerHead) ||
       !Number.isFinite(rating) ||
@@ -220,7 +233,7 @@ export default function AdminNewVenuePage() {
     ) {
       showError(
         "Venue details incomplete",
-        "Name, type, address, city, capacity, price, and rating are required."
+        "Name, type, address, city, venue GCash number, capacity, price, and rating are required."
       );
       return;
     }
@@ -255,6 +268,7 @@ export default function AdminNewVenuePage() {
       setting: form.setting,
       tags,
       description: form.description.trim(),
+      gcash_number: venueGcashNumber,
       image_color: "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
       image_url: imageUrl,
       base_distance_km: Number.isFinite(baseDistanceKm) ? Math.max(0, baseDistanceKm) : 3,
@@ -349,6 +363,16 @@ export default function AdminNewVenuePage() {
               placeholder="Select city…"
             />
             <TextField label="Area / Barangay" value={form.area} onChange={(value) => updateForm({ area: value })} placeholder="e.g. BGC, Eastwood, Poblacion" />
+            <TextField
+              label="Venue GCash receiving number"
+              value={form.gcashNumber}
+              onChange={(value) => updateForm({ gcashNumber: digitsOnly(value) })}
+              placeholder="09XX-XXX-XXXX"
+              type="tel"
+              inputMode="numeric"
+              maxLength={11}
+              icon={<Smartphone size={14} />}
+            />
             <TextField label="Capacity" value={form.capacity} onChange={(value) => updateForm({ capacity: value })} placeholder="e.g. 200" />
             <TextField
               label="Price per head (₱)"
@@ -495,19 +519,31 @@ function TextField({
   onChange,
   placeholder,
   className = "",
+  type = "text",
+  inputMode,
+  maxLength,
+  icon,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  type?: string;
+  inputMode?: "none" | "text" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
+  maxLength?: number;
+  icon?: ReactNode;
 }) {
   return (
     <label className={className}>
-      <span className="mb-1.5 block text-sm font-semibold text-[#1A1817]">
+      <span className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-[#1A1817]">
+        {icon && <span className="text-[#2A6558]">{icon}</span>}
         {label}
       </span>
       <input
+        type={type}
+        inputMode={inputMode}
+        maxLength={maxLength}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

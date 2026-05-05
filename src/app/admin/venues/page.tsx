@@ -7,8 +7,9 @@ import {
   AdminDeniedState,
   AdminLoadingState,
   AdminMetricCard,
+  AdminSortSelect,
 } from "@/components/admin/AdminUI";
-import { formatAdminDateTime, type VenueSetting } from "@/lib/adminData";
+import { type AdminVenue, formatAdminDateTime, type VenueSetting } from "@/lib/adminData";
 import { formatPeso } from "@/lib/budget";
 import { ROUTES } from "@/lib/routes";
 import { supabase } from "@/lib/supabase/client";
@@ -24,6 +25,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Smartphone,
   Star,
   Store,
   Trash2,
@@ -69,12 +71,47 @@ interface VenueDraft {
   setting: VenueSetting;
   tags: string;
   description: string;
+  gcashNumber: string;
   capacity: string;
   pricePerHead: string;
   rating: string;
   reviewCount: string;
   baseDistanceKm: string;
   isActive: boolean;
+}
+
+type VenueSort = "latest" | "updated" | "name" | "capacity_desc" | "price_asc" | "rating_desc";
+
+const venueSortOptions: { value: VenueSort; label: string }[] = [
+  { value: "latest", label: "Latest" },
+  { value: "updated", label: "Recently updated" },
+  { value: "name", label: "Name A-Z" },
+  { value: "capacity_desc", label: "Largest capacity" },
+  { value: "price_asc", label: "Lowest price" },
+  { value: "rating_desc", label: "Highest rating" },
+];
+
+function toTime(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareVenues(left: AdminVenue, right: AdminVenue, sort: VenueSort) {
+  if (sort === "updated") return toTime(right.updatedAt) - toTime(left.updatedAt);
+  if (sort === "name") return left.name.localeCompare(right.name);
+  if (sort === "capacity_desc") return right.capacity - left.capacity;
+  if (sort === "price_asc") return left.pricePerHead - right.pricePerHead;
+  if (sort === "rating_desc") return right.rating - left.rating;
+  return toTime(right.createdAt) - toTime(left.createdAt);
+}
+
+function digitsOnly(value: string, maxLength = 11) {
+  return value.replace(/\D/g, "").slice(0, maxLength);
+}
+
+function isPhilippineMobile(value: string) {
+  return /^09\d{9}$/.test(value);
 }
 
 export default function AdminVenuesPage() {
@@ -85,6 +122,7 @@ export default function AdminVenuesPage() {
   const [deletingVenueId, setDeletingVenueId] = useState<string | null>(null);
   const [confirmDeleteVenueId, setConfirmDeleteVenueId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<VenueSort>("latest");
   const [settingFilter, setSettingFilter] = useState<"all" | VenueSetting>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
@@ -123,21 +161,23 @@ export default function AdminVenuesPage() {
 
   const filteredVenues = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    return venues.filter((venue) => {
-      const matchesSearch =
-        !q ||
-        venue.name.toLowerCase().includes(q) ||
-        venue.city.toLowerCase().includes(q) ||
-        venue.type.toLowerCase().includes(q) ||
-        (venue.area ?? "").toLowerCase().includes(q);
-      const matchesSetting = settingFilter === "all" || venue.setting === settingFilter;
-      const matchesStatus =
-        statusFilter === "all" ||
-        (statusFilter === "active" && venue.isActive) ||
-        (statusFilter === "inactive" && !venue.isActive);
-      return matchesSearch && matchesSetting && matchesStatus;
-    });
-  }, [venues, searchQuery, settingFilter, statusFilter]);
+    return venues
+      .filter((venue) => {
+        const matchesSearch =
+          !q ||
+          venue.name.toLowerCase().includes(q) ||
+          venue.city.toLowerCase().includes(q) ||
+          venue.type.toLowerCase().includes(q) ||
+          (venue.area ?? "").toLowerCase().includes(q);
+        const matchesSetting = settingFilter === "all" || venue.setting === settingFilter;
+        const matchesStatus =
+          statusFilter === "all" ||
+          (statusFilter === "active" && venue.isActive) ||
+          (statusFilter === "inactive" && !venue.isActive);
+        return matchesSearch && matchesSetting && matchesStatus;
+      })
+      .sort((left, right) => compareVenues(left, right, sortOrder));
+  }, [venues, searchQuery, settingFilter, sortOrder, statusFilter]);
 
   const getDefaultDraft = (venue: (typeof venues)[number]): VenueDraft => ({
     name: venue.name,
@@ -148,6 +188,7 @@ export default function AdminVenuesPage() {
     setting: venue.setting,
     tags: venue.tags.join(", "),
     description: venue.description,
+    gcashNumber: venue.gcashNumber,
     capacity: String(venue.capacity),
     pricePerHead: String(venue.pricePerHead),
     rating: String(venue.rating),
@@ -192,6 +233,7 @@ export default function AdminVenuesPage() {
     const rating = Number(draft.rating);
     const reviewCount = Number(draft.reviewCount);
     const baseDistanceKm = Number(draft.baseDistanceKm);
+    const venueGcashNumber = digitsOnly(draft.gcashNumber);
 
     if (
       !Number.isFinite(capacity) ||
@@ -207,6 +249,11 @@ export default function AdminVenuesPage() {
       baseDistanceKm < 0
     ) {
       showError("Check venue values", "Capacity, price, rating, reviews, and distance must be valid.");
+      return;
+    }
+
+    if (!isPhilippineMobile(venueGcashNumber)) {
+      showError("GCash number required", "Enter the venue's 11-digit receiving GCash number.");
       return;
     }
 
@@ -240,6 +287,7 @@ export default function AdminVenuesPage() {
         setting: draft.setting,
         tags: draft.tags.split(",").map((t) => t.trim()).filter(Boolean),
         description: draft.description.trim(),
+        gcash_number: venueGcashNumber,
         ...(uploadedImageUrl ? { image_url: uploadedImageUrl } : {}),
       })
       .eq("id", venueId);
@@ -374,6 +422,11 @@ export default function AdminVenuesPage() {
                 className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
               />
             </div>
+            <AdminSortSelect
+              value={sortOrder}
+              onChange={setSortOrder}
+              options={venueSortOptions}
+            />
             <div className="flex flex-wrap gap-2">
               {(["all", "active", "inactive"] as const).map((key) => (
                 <button
@@ -450,6 +503,16 @@ export default function AdminVenuesPage() {
                     </span>
                     <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2 py-0.5 text-[11px] font-semibold text-[#7C7671]">
                       {venue.setting}
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        venue.gcashNumber
+                          ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
+                          : "border-[#F2C5BE] bg-[#FDECEA] text-[#C0392B]"
+                      }`}
+                    >
+                      <Smartphone size={10} />
+                      {venue.gcashNumber ? "GCash ready" : "Needs GCash"}
                     </span>
                   </div>
                   <p className="text-base font-extrabold text-[#1A1817] group-hover:text-[#2A6558]">
@@ -557,6 +620,17 @@ export default function AdminVenuesPage() {
                     </ModalField>
                     <ModalField label="Address" className="sm:col-span-2">
                       <input value={draft.address} onChange={(e) => updateDraft(selectedVenue.id, { address: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Venue GCash receiving number">
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={11}
+                        value={draft.gcashNumber}
+                        onChange={(e) => updateDraft(selectedVenue.id, { gcashNumber: digitsOnly(e.target.value) })}
+                        placeholder="09XX-XXX-XXXX"
+                        className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
+                      />
                     </ModalField>
                     <ModalField label="City">
                       <select value={draft.city} onChange={(e) => updateDraft(selectedVenue.id, { city: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-medium text-[#1A1817] outline-none transition focus:border-[#2A6558]">

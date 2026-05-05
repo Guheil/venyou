@@ -68,6 +68,12 @@ function formatTime(t: string): string {
   return `${hour - 12}:00 PM`;
 }
 
+function formatMobile(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length !== 11) return value;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
+}
+
 // ─── Status badge ────────────────────────────────────────────
 
 function StatusBadge({ reservation }: { reservation: VenueReservation }) {
@@ -196,6 +202,13 @@ function ReservationCard({
             {formatBudgetPeso(reservation.totalAmount)}
           </span>
         </div>
+
+        {reservation.paymentMethod === "gcash" && reservation.venueGcashNumber && (
+          <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-700">
+            <span className="font-semibold text-blue-800">Venue GCash: </span>
+            <span className="font-mono font-bold">{formatMobile(reservation.venueGcashNumber)}</span>
+          </div>
+        )}
 
         {/* Reference */}
         <div className="mb-4 flex items-center justify-between rounded-xl bg-[#EAF2F0] border border-[#C8E0DA] px-3 py-2">
@@ -424,7 +437,7 @@ export default function ReservationsPage() {
            payment_method, payment_status, gcash_number,
            payment_reference, payment_proof_url, admin_payment_type, reservation_status,
            reference_number, expires_at,
-           venues ( name, address, image_color, type )`
+           venues ( name, address, image_color, type, gcash_number )`
         )
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });

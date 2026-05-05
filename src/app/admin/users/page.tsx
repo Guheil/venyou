@@ -8,6 +8,7 @@ import {
   AdminMetricCard,
   AdminPanel,
   AdminSectionHeader,
+  AdminSortSelect,
 } from "@/components/admin/AdminUI";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase/client";
@@ -32,6 +33,7 @@ import {
 
 type UserFilter = "all" | "active" | "disabled" | "admins" | "customers";
 type UserAction = "disable" | "delete";
+type UserSort = "latest" | "last_login" | "name" | "events_desc" | "reservations_desc";
 
 interface AdminUserAccount {
   user_id: string;
@@ -59,6 +61,14 @@ const filters: { key: UserFilter; label: string }[] = [
   { key: "customers", label: "Customers" },
 ];
 
+const userSortOptions: { value: UserSort; label: string }[] = [
+  { value: "latest", label: "Latest" },
+  { value: "last_login", label: "Last login" },
+  { value: "name", label: "Name A-Z" },
+  { value: "events_desc", label: "Most events" },
+  { value: "reservations_desc", label: "Most reservations" },
+];
+
 function formatDateTime(value: string | null) {
   if (!value) return "Never";
   return new Date(value).toLocaleDateString("en-PH", {
@@ -70,11 +80,27 @@ function formatDateTime(value: string | null) {
   });
 }
 
+function toTime(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
 function compact(value: number) {
   return new Intl.NumberFormat("en-US", {
     notation: "compact",
     compactDisplay: "short",
   }).format(value);
+}
+
+function compareUsers(left: AdminUserAccount, right: AdminUserAccount, sort: UserSort) {
+  if (sort === "last_login") {
+    return toTime(right.last_sign_in_at) - toTime(left.last_sign_in_at);
+  }
+  if (sort === "name") return left.display_name.localeCompare(right.display_name);
+  if (sort === "events_desc") return right.event_count - left.event_count;
+  if (sort === "reservations_desc") return right.reservation_count - left.reservation_count;
+  return toTime(right.created_at) - toTime(left.created_at);
 }
 
 export default function AdminUsersPage() {
@@ -85,6 +111,7 @@ export default function AdminUsersPage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<UserFilter>("all");
+  const [sortOrder, setSortOrder] = useState<UserSort>("latest");
   const [actionUser, setActionUser] = useState<AdminUserAccount | null>(null);
   const [actionType, setActionType] = useState<UserAction | null>(null);
   const [submittingUserId, setSubmittingUserId] = useState<string | null>(null);
@@ -132,23 +159,25 @@ export default function AdminUsersPage() {
   const filteredUsers = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
 
-    return users.filter((account) => {
-      const matchesFilter =
-        filter === "all" ||
-        (filter === "active" && !account.is_disabled) ||
-        (filter === "disabled" && account.is_disabled) ||
-        (filter === "admins" && Boolean(account.admin_role)) ||
-        (filter === "customers" && !account.admin_role);
+    return users
+      .filter((account) => {
+        const matchesFilter =
+          filter === "all" ||
+          (filter === "active" && !account.is_disabled) ||
+          (filter === "disabled" && account.is_disabled) ||
+          (filter === "admins" && Boolean(account.admin_role)) ||
+          (filter === "customers" && !account.admin_role);
 
-      const matchesSearch =
-        !q ||
-        account.email?.toLowerCase().includes(q) ||
-        account.display_name.toLowerCase().includes(q) ||
-        account.user_id.toLowerCase().includes(q);
+        const matchesSearch =
+          !q ||
+          account.email?.toLowerCase().includes(q) ||
+          account.display_name.toLowerCase().includes(q) ||
+          account.user_id.toLowerCase().includes(q);
 
-      return matchesFilter && matchesSearch;
-    });
-  }, [filter, searchQuery, users]);
+        return matchesFilter && matchesSearch;
+      })
+      .sort((left, right) => compareUsers(left, right, sortOrder));
+  }, [filter, searchQuery, sortOrder, users]);
 
   const openConfirm = (type: UserAction, account: AdminUserAccount) => {
     setActionType(type);
@@ -309,6 +338,11 @@ export default function AdminUsersPage() {
                 className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
               />
             </div>
+            <AdminSortSelect
+              value={sortOrder}
+              onChange={setSortOrder}
+              options={userSortOptions}
+            />
             <div className="flex gap-2 overflow-x-auto pb-1">
               {filters.map((item) => (
                 <button

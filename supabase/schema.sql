@@ -160,11 +160,15 @@ create table if not exists public.venues (
   image_color text not null default 'linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)',
   image_url text not null default '',
   base_distance_km numeric(6, 2) not null default 3.0 check (base_distance_km >= 0),
+  gcash_number text not null default '' check (gcash_number = '' or gcash_number ~ '^09[0-9]{9}$'),
   is_active boolean not null default true
 );
 
 alter table public.venues
   add column if not exists image_url text not null default '';
+
+alter table public.venues
+  add column if not exists gcash_number text not null default '';
 
 create unique index if not exists venues_name_address_key
   on public.venues (name, address);

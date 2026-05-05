@@ -57,7 +57,7 @@ export function useAdminData() {
         setLoadingData(false);
         return;
       }
-
+  
       setLoadingData(true);
       setAccessState((state) => (state === "ready" ? "ready" : "loading"));
 

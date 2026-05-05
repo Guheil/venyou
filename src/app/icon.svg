@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Rounded square background -->
+  <rect width="32" height="32" rx="8" ry="8" fill="#2A6558"/>
+  <!-- Location pin shape (building/venue) -->
+  <path
+    d="M16 6C12.134 6 9 9.134 9 13C9 18 16 26 16 26C16 26 23 18 23 13C23 9.134 19.866 6 16 6Z"
+    fill="white"
+    opacity="0.15"
+  />
+  <!-- Bold "V" lettermark -->
+  <text
+    x="16"
+    y="22"
+    text-anchor="middle"
+    font-family="'Segoe UI', Arial, sans-serif"
+    font-size="17"
+    font-weight="800"
+    fill="white"
+    letter-spacing="-0.5"
+  >V</text>
+</svg>

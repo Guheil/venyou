@@ -17,10 +17,13 @@ import {
   Mail,
   Lock,
   User,
+  Phone,
   ArrowRight,
   ArrowLeft,
   CheckCircle2,
   ShieldCheck,
+  KeyRound,
+  RefreshCw,
 } from "lucide-react";
 
 const requirements = [
@@ -57,6 +60,7 @@ const timelineOptions = ["Within 1 month", "1-3 months", "3-6 months", "6+ month
 interface RegisterForm {
   fullName: string;
   email: string;
+  contactNumber: string;
   password: string;
   planningFor: string;
   eventType: string;
@@ -96,6 +100,7 @@ export default function RegisterPage() {
   const [form, setForm] = useState<RegisterForm>({
     fullName: "",
     email: "",
+    contactNumber: "",
     password: "",
     planningFor: "",
     eventType: "",
@@ -110,6 +115,10 @@ export default function RegisterPage() {
   const [oauthLoading, setOauthLoading] = useState<"google" | "github" | null>(null);
   const [terminating, setTerminating] = useState(false);
   const [done, setDone] = useState<CompletionState>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const isSocialOnboarding = Boolean(
     user?.app_metadata?.provider && user.app_metadata.provider !== "email"
@@ -123,9 +132,9 @@ export default function RegisterPage() {
   const hasPendingOnboardingSession = needsOnboarding;
 
   useEffect(() => {
-    if (!user || needsOnboarding || done) return;
+    if (!user || needsOnboarding || done || otpVerified) return;
     router.replace("/dashboard");
-  }, [done, needsOnboarding, router, user]);
+  }, [done, needsOnboarding, otpVerified, router, user]);
 
   useEffect(() => {
     return () => {
@@ -134,6 +143,73 @@ export default function RegisterPage() {
       }
     };
   }, [done, hasPendingOnboardingSession]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const sendOtp = async () => {
+    setLoading(true);
+    setErrors({});
+    const { error } = await supabase.auth.signInWithOtp({
+      email: emailValue.trim().toLowerCase(),
+      options: { shouldCreateUser: true },
+    });
+    setLoading(false);
+    if (error) {
+      console.error("[sendOtp] Supabase error:", error.message, error);
+      const isRateLimit = error.message.toLowerCase().includes("rate") || error.status === 429;
+      const msg = isRateLimit
+        ? "Too many attempts. Please wait a few minutes before requesting a new code."
+        : error.message || "Unable to send verification code. Please try again.";
+      setErrors({ auth: msg });
+      showError("Verification failed", msg);
+      return;
+    }
+    setOtpSent(true);
+    setResendCooldown(120);
+    setStep(3);
+  };
+
+  const resendOtp = async () => {
+    setLoading(true);
+    setErrors({});
+    const { error } = await supabase.auth.signInWithOtp({
+      email: emailValue.trim().toLowerCase(),
+      options: { shouldCreateUser: true },
+    });
+    setLoading(false);
+    if (!error) {
+      setOtpCode("");
+      setResendCooldown(120);
+      success("Code resent", "Check your inbox for a new 6-digit code.");
+    } else {
+      showError("Resend failed", "Unable to resend code. Please try again.");
+    }
+  };
+
+  const verifyOtpCode = async () => {
+    if (otpCode.length !== 6) {
+      setErrors({ otp: "Enter the 6-digit code from your email." });
+      return;
+    }
+    setLoading(true);
+    setErrors({});
+    const { error } = await supabase.auth.verifyOtp({
+      email: emailValue.trim().toLowerCase(),
+      token: otpCode,
+      type: "email",
+    });
+    setLoading(false);
+    if (error) {
+      setErrors({ otp: "Invalid or expired code. Please check and try again." });
+      return;
+    }
+    setOtpVerified(true);
+    setStep(4);
+  };
 
   const handleCancelRegistration = async () => {
     setTerminating(true);
@@ -170,6 +246,8 @@ export default function RegisterPage() {
       if (!fullNameValue.trim()) e.fullName = "Full name is required.";
       if (!emailValue) e.email = "Email is required.";
       else if (!emailRegex.test(emailValue)) e.email = "Enter a valid email.";
+      if (form.contactNumber && !/^\d{7,15}$/.test(form.contactNumber))
+        e.contactNumber = "Contact number must be 7–15 digits.";
       if (!isSocialOnboarding) {
         if (!form.password) e.password = "Password is required.";
         else if (form.password.length < 8) e.password = "Password must be at least 8 characters.";
@@ -200,13 +278,31 @@ export default function RegisterPage() {
 
   const backStep = () => {
     setErrors({});
+    if (step === 3 && !isSocialOnboarding) {
+      setOtpSent(false);
+      setOtpVerified(false);
+      setOtpCode("");
+      setResendCooldown(0);
+    }
     setStep((s) => Math.max(1, s - 1));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Step 3 for email users: verify OTP
+    if (step === 3 && !isSocialOnboarding) {
+      await verifyOtpCode();
+      return;
+    }
+
     if (step < registerSteps.length) {
+      // Moving from step 2 to step 3 for email users: send OTP
+      if (step === 2 && !isSocialOnboarding) {
+        if (!validateStep(step)) return;
+        await sendOtp();
+        return;
+      }
       nextStep();
       return;
     }
@@ -218,6 +314,7 @@ export default function RegisterPage() {
 
     const metadataPayload = {
       full_name: fullNameValue.trim(),
+      contact_number: form.contactNumber.trim(),
       planning_for: form.planningFor,
       event_type: form.eventType,
       event_timeline: form.eventTimeline,
@@ -247,36 +344,23 @@ export default function RegisterPage() {
       return;
     }
 
-    const { data, error } = await supabase.auth.signUp({
-      email: emailValue.trim().toLowerCase(),
+    // User is signed in via OTP — set their password and save metadata
+    const { error } = await supabase.auth.updateUser({
       password: form.password,
-      options: {
-        data: metadataPayload,
-        emailRedirectTo: buildAuthRedirectUrl("/auth/callback"),
-      },
+      data: metadataPayload,
     });
 
     if (error) {
-      const message = error.message.toLowerCase().includes("already")
-        ? "An account with this email already exists. Try signing in."
-        : "Unable to create account right now. Please try again.";
-
-      setErrors({ auth: message });
-      showError("Sign up failed", message);
+      setErrors({ auth: "Unable to complete registration right now. Please try again." });
+      showError("Sign up failed", "Please try again.");
       setLoading(false);
       return;
     }
 
+    await supabase.auth.refreshSession();
     setLoading(false);
-
-    if (data.session) {
-      success("Account created", "Welcome to VenYOU.");
-      setDone("signed_in");
-      return;
-    }
-
-    success("Verify your email", "We sent a confirmation link to your inbox.");
-    setDone("needs_verification");
+    success("Account created", "Welcome to VenYOU.");
+    setDone("signed_in");
   };
 
   const stepTitle =
@@ -298,19 +382,19 @@ export default function RegisterPage() {
         : step === 3
           ? isSocialOnboarding
             ? "Social accounts are already verified. Review before completing signup."
-            : "After account creation, we send a secure email verification link."
+            : "Enter the 6-digit code we sent to your inbox."
           : "Review and accept before creating your account.";
 
-  const primaryActionLabel =
-    loading
-      ? isSocialOnboarding
-        ? "Finalizing..."
-        : "Creating account..."
-      : step === registerSteps.length
-        ? isSocialOnboarding
-          ? "Complete Registration"
-          : "Create Account"
-        : "Continue";
+  const primaryActionLabel = (() => {
+    if (loading) {
+      if (step === 2 && !isSocialOnboarding) return "Sending code...";
+      if (step === 3 && !isSocialOnboarding) return "Verifying...";
+      return isSocialOnboarding ? "Finalizing..." : "Creating account...";
+    }
+    if (step === 3 && !isSocialOnboarding) return "Verify Code";
+    if (step === registerSteps.length) return isSocialOnboarding ? "Complete Registration" : "Create Account";
+    return "Continue";
+  })();
 
   const activeDocument =
     openLegal === "terms" ? termsOfService : openLegal === "privacy" ? privacyPolicy : null;
@@ -523,6 +607,31 @@ export default function RegisterPage() {
                   {errors.email && <p className="mt-1 text-xs text-[#C0392B]">{errors.email}</p>}
                 </div>
 
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-[#1A1817]">
+                    Contact Number <span className="text-[#7C7671] font-normal">(optional)</span>
+                  </label>
+                  <div className="relative">
+                    <Phone size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      autoComplete="tel"
+                      value={form.contactNumber}
+                      onChange={(e) =>
+                        setForm({ ...form, contactNumber: e.target.value.replace(/\D/g, "").slice(0, 15) })
+                      }
+                      placeholder="09171234567"
+                      className={`w-full rounded-xl border bg-white py-3 pl-10 pr-4 text-sm text-[#1A1817] outline-none placeholder:text-[#C4BDBA] transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
+                        errors.contactNumber ? "border-[#C0392B]" : "border-[#E0DDD5]"
+                      }`}
+                    />
+                  </div>
+                  {errors.contactNumber && (
+                    <p className="mt-1 text-xs text-[#C0392B]">{errors.contactNumber}</p>
+                  )}
+                </div>
+
                 {!isSocialOnboarding ? (
                   <div>
                     <label className="mb-1.5 block text-sm font-medium text-[#1A1817]">Password</label>
@@ -649,27 +758,82 @@ export default function RegisterPage() {
 
             {step === 3 && (
               <div className="flex flex-col gap-5 page-fade">
-                <div className="rounded-xl border border-[#C8E0DA] bg-[#EAF2F0] p-4 text-sm text-[#215249]">
-                  <div className="mb-1.5 flex items-center gap-2 font-semibold">
-                    <ShieldCheck size={16} />
-                    Email verification
-                  </div>
-                  {isSocialOnboarding ? (
-                    <p>
-                      Your <strong>{user?.app_metadata?.provider ?? "social"}</strong> account already verified{" "}
-                      <strong>{emailValue || "your email"}</strong>. Continue to terms.
+                {isSocialOnboarding ? (
+                  <>
+                    <div className="rounded-xl border border-[#C8E0DA] bg-[#EAF2F0] p-4 text-sm text-[#215249]">
+                      <div className="mb-1.5 flex items-center gap-2 font-semibold">
+                        <ShieldCheck size={16} />
+                        Email verification
+                      </div>
+                      <p>
+                        Your <strong>{user?.app_metadata?.provider ?? "social"}</strong> account already verified{" "}
+                        <strong>{emailValue || "your email"}</strong>. Continue to terms.
+                      </p>
+                    </div>
+                    <p className="rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-3 py-2 text-xs text-[#1A1817]">
+                      Social sign in pre-fills basic info. You still need to complete all onboarding steps.
                     </p>
-                  ) : (
-                    <p>
-                      After creating your account, we will send a secure verification link to <strong>{emailValue || "your email"}</strong>.
-                    </p>
-                  )}
-                </div>
-                <p className="rounded-xl border border-[#E0DDD5] bg-[#F8F6F1] px-3 py-2 text-xs text-[#1A1817]">
-                  {isSocialOnboarding
-                    ? "Social sign in pre-fills basic info. You still need to complete all onboarding steps."
-                    : "Verification protects your account and ensures only you can access your event data."}
-                </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-xl border border-[#C8E0DA] bg-[#EAF2F0] p-4 text-sm text-[#215249]">
+                      <div className="mb-1.5 flex items-center gap-2 font-semibold">
+                        <ShieldCheck size={16} />
+                        Verify your email
+                      </div>
+                      <p>
+                        We sent a 6-digit code to <strong>{emailValue || "your email"}</strong>. Enter it below to continue.
+                      </p>
+                    </div>
+
+                    {otpVerified ? (
+                      <div className="flex items-center gap-2 rounded-xl border border-[#C8E0DA] bg-[#EAF2F0] p-3 text-sm font-semibold text-[#2A6558]">
+                        <CheckCircle2 size={16} />
+                        Email verified successfully!
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="mb-1.5 block text-sm font-medium text-[#1A1817]">
+                            Verification Code
+                          </label>
+                          <div className="relative">
+                            <KeyRound size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              autoComplete="one-time-code"
+                              maxLength={6}
+                              value={otpCode}
+                              onChange={(e) => {
+                                setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                                if (errors.otp) setErrors((prev) => ({ ...prev, otp: "" }));
+                              }}
+                              placeholder="000000"
+                              className={`w-full rounded-xl border bg-white py-3 pl-10 pr-4 text-center text-lg font-bold tracking-[0.4em] text-[#1A1817] outline-none placeholder:text-[#C4BDBA] placeholder:tracking-normal transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
+                                errors.otp ? "border-[#C0392B]" : "border-[#E0DDD5]"
+                              }`}
+                            />
+                          </div>
+                          {errors.otp && <p className="mt-1 text-xs text-[#C0392B]">{errors.otp}</p>}
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-[#7C7671]">
+                          <span>Didn&apos;t receive the code?</span>
+                          <button
+                            type="button"
+                            disabled={resendCooldown > 0 || loading}
+                            onClick={() => void resendOtp()}
+                            className="flex items-center gap-1 font-semibold text-[#2A6558] hover:underline disabled:opacity-50"
+                          >
+                            <RefreshCw size={12} />
+                            {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             )}
 

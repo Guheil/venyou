@@ -49,6 +49,7 @@ export const RESERVATION_SELECT = `
   payment_method, payment_status, gcash_number,
   payment_reference, reservation_status, reference_number,
   expires_at, payment_confirmed_at, admin_note,
+  payment_proof_url, admin_payment_type,
   venues ( name, type, address, city, area, image_color ),
   events ( event_name, occasion, city )
 `;
@@ -106,6 +107,8 @@ export interface AdminReservationRow {
   expires_at: string | null;
   payment_confirmed_at: string | null;
   admin_note: string | null;
+  payment_proof_url: string | null;
+  admin_payment_type: "online" | "face_to_face" | null;
   venues: ReservationVenueJoin | ReservationVenueJoin[] | null;
   events: ReservationEventJoin | ReservationEventJoin[] | null;
 }
@@ -135,6 +138,8 @@ export interface AdminReservation {
   expiresAt: string | null;
   paymentConfirmedAt: string | null;
   adminNote: string;
+  paymentProofUrl: string | null;
+  adminPaymentType: "online" | "face_to_face" | null;
   venueName: string;
   venueType: string;
   venueAddress: string;
@@ -284,6 +289,8 @@ export function mapReservationRow(row: AdminReservationRow): AdminReservation {
     expiresAt: row.expires_at,
     paymentConfirmedAt: row.payment_confirmed_at,
     adminNote: row.admin_note ?? "",
+    paymentProofUrl: row.payment_proof_url,
+    adminPaymentType: row.admin_payment_type,
     venueName: venue?.name ?? "Venue",
     venueType: venue?.type ?? "Venue",
     venueAddress: venue?.address ?? "",

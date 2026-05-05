@@ -1,31 +1,176 @@
-"use client";
+﻿"use client";
 
+import { useMemo } from "react";
 import AdminShell from "@/components/AdminShell";
 import {
   AdminDeniedState,
   AdminLoadingState,
   AdminMetricCard,
-  AdminPanel,
-  AdminSectionHeader,
-  ProgressRow,
 } from "@/components/admin/AdminUI";
 import { formatPeso } from "@/lib/budget";
 import { formatAdminCompactNumber } from "@/lib/adminData";
 import { useAdminData } from "@/lib/useAdminData";
 import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   Banknote,
   BarChart3,
   Building2,
-  CalendarCheck,
   RefreshCw,
-  Smartphone,
   TrendingUp,
   Users,
 } from "lucide-react";
 
+// ── Design tokens ─────────────────────────────────────────────
+const C = {
+  teal: "#2A6558",
+  amber: "#F59E0B",
+  red: "#B42318",
+  lightTeal: "#7BC4B8",
+  blue: "#3B82F6",
+  orange: "#F97316",
+  purple: "#8B5CF6",
+  grid: "#F0EDE8",
+};
+const PIE_PALETTE = [C.teal, C.blue, C.orange, C.purple, C.amber, C.red];
+const TOOLTIP_STYLE: React.CSSProperties = {
+  backgroundColor: "#fff",
+  border: "1px solid #E0DDD5",
+  borderRadius: "14px",
+  boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+  padding: "8px 14px",
+  fontSize: "12px",
+  fontWeight: 600,
+  color: "#1A1817",
+};
+
+function ChartPanel({
+  eyebrow, title, description, children, className = "",
+}: {
+  eyebrow: string; title: string; description?: string;
+  children: React.ReactNode; className?: string;
+}) {
+  return (
+    <div className={`rounded-[28px] border border-[#E0DDD5] bg-white p-5 sm:p-6 ${className}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">{eyebrow}</p>
+      <h3 className="mt-1 text-base font-extrabold text-[#1A1817]">{title}</h3>
+      {description && <p className="mt-0.5 text-xs text-[#7C7671]">{description}</p>}
+      <div className="mt-5">{children}</div>
+    </div>
+  );
+}
+
+function EmptyChart({ message = "No data yet." }: { message?: string }) {
+  return (
+    <div className="flex h-[220px] items-center justify-center rounded-[20px] border border-dashed border-[#DAD6CE] bg-[#FCFBF8]">
+      <p className="text-sm text-[#7C7671]">{message}</p>
+    </div>
+  );
+}
+
 export default function AdminAnalyticsPage() {
   const { accessState, loadingData, refreshData, reservations, venues, events, summary } =
     useAdminData();
+
+  const totalOutcomes =
+    summary.pending_requests + summary.confirmed_reservations + summary.cancelled_reservations;
+  const confirmationRate =
+    totalOutcomes > 0
+      ? Math.round((summary.confirmed_reservations / totalOutcomes) * 100)
+      : 0;
+  const activeReservations = useMemo(
+    () => reservations.filter((r) => r.reservationStatus !== "cancelled"),
+    [reservations]
+  );
+  const averageReservationValue =
+    activeReservations.length > 0
+      ? Math.round(summary.total_reserved_value / activeReservations.length)
+      : 0;
+  const totalGuests = useMemo(() => events.reduce((s, e) => s + e.pax, 0), [events]);
+  const averageCapacity =
+    venues.length > 0
+      ? Math.round(venues.reduce((s, v) => s + v.capacity, 0) / venues.length)
+      : 0;
+
+  const monthlyData = useMemo(() => {
+    const now = new Date();
+    const months = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      return {
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        bookings: 0,
+        revenue: 0,
+        guests: 0,
+      };
+    });
+    const map = Object.fromEntries(months.map((m) => [m.key, m]));
+    for (const r of reservations) {
+      const key = r.createdAt.slice(0, 7);
+      if (!map[key]) continue;
+      map[key].bookings += 1;
+      map[key].guests += r.guestCount;
+      if (r.reservationStatus !== "cancelled") map[key].revenue += r.totalAmount;
+    }
+    return months;
+  }, [reservations]);
+
+  const venuePopularity = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const r of activeReservations) map[r.venueName] = (map[r.venueName] ?? 0) + 1;
+    return Object.entries(map)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 7)
+      .map(([name, bookings]) => ({
+        name: name.length > 24 ? name.slice(0, 24) + "..." : name,
+        bookings,
+      }));
+  }, [activeReservations]);
+
+  const paymentMethodData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of reservations) {
+      const label = r.paymentMethod === "gcash" ? "GCash" : "Cash";
+      counts[label] = (counts[label] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .filter((d) => d.value > 0);
+  }, [reservations]);
+
+  const statusData = useMemo(
+    () =>
+      [
+        { name: "Pending", value: summary.pending_requests, color: C.amber },
+        { name: "Confirmed", value: summary.confirmed_reservations, color: C.teal },
+        { name: "Cancelled", value: summary.cancelled_reservations, color: C.red },
+      ].filter((d) => d.value > 0),
+    [summary]
+  );
+
+  const occasionData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of events) counts[e.occasion] = (counts[e.occasion] ?? 0) + 1;
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, value], i) => ({ name, value, color: PIE_PALETTE[i % PIE_PALETTE.length] }));
+  }, [events]);
 
   if (accessState === "loading") {
     return (
@@ -34,7 +179,6 @@ export default function AdminAnalyticsPage() {
       </AdminShell>
     );
   }
-
   if (accessState === "denied") {
     return (
       <AdminShell>
@@ -42,56 +186,6 @@ export default function AdminAnalyticsPage() {
       </AdminShell>
     );
   }
-
-  const totalOutcomes =
-    summary.pending_requests +
-    summary.confirmed_reservations +
-    summary.cancelled_reservations;
-  const confirmationRate =
-    totalOutcomes > 0
-      ? Math.round((summary.confirmed_reservations / totalOutcomes) * 100)
-      : 0;
-  const activeReservations = reservations.filter(
-    (reservation) => reservation.reservationStatus !== "cancelled"
-  );
-  const averageReservationValue =
-    activeReservations.length > 0
-      ? Math.round(summary.total_reserved_value / activeReservations.length)
-      : 0;
-  const totalGuests = events.reduce((sum, event) => sum + event.pax, 0);
-  const averageCapacity =
-    venues.length > 0
-      ? Math.round(venues.reduce((sum, venue) => sum + venue.capacity, 0) / venues.length)
-      : 0;
-
-  const topVenues = Object.entries(
-    activeReservations.reduce<Record<string, { count: number; value: number }>>(
-      (map, reservation) => {
-        map[reservation.venueName] = map[reservation.venueName] ?? {
-          count: 0,
-          value: 0,
-        };
-        map[reservation.venueName].count += 1;
-        map[reservation.venueName].value += reservation.totalAmount;
-        return map;
-      },
-      {}
-    )
-  )
-    .sort((left, right) => right[1].value - left[1].value)
-    .slice(0, 6);
-  const topVenueMax = Math.max(1, ...topVenues.map(([, stats]) => stats.value));
-
-  const cityMix = Object.entries(
-    reservations.reduce<Record<string, number>>((map, reservation) => {
-      const city = reservation.venueCity || reservation.eventCity || "Unassigned";
-      map[city] = (map[city] ?? 0) + 1;
-      return map;
-    }, {})
-  )
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 6);
-  const cityMax = Math.max(1, ...cityMix.map(([, count]) => count));
 
   return (
     <AdminShell>
@@ -104,11 +198,11 @@ export default function AdminAnalyticsPage() {
                 Analytics
               </span>
               <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#1A1817] sm:text-4xl">
-                Operations analytics across requests, bookings, venues, and events.
+                Operations analytics across bookings, revenue, venues, and events.
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#6B6661] sm:text-base">
-                Track confirmation performance, pending payment mix, active value,
-                demand by venue, demand by city, and catalog coverage.
+                Track confirmation rates, revenue trends, venue demand, payment distribution,
+                guest volume, and occasion mix.
               </p>
             </div>
             <button
@@ -124,179 +218,141 @@ export default function AdminAnalyticsPage() {
         </section>
 
         <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <AdminMetricCard
-            icon={<TrendingUp size={18} />}
-            label="Confirmation Rate"
-            value={`${confirmationRate}%`}
-            detail="Confirmed against tracked outcomes"
-            tone="accent"
-          />
-          <AdminMetricCard
-            icon={<Banknote size={18} />}
-            label="Active Value"
-            value={formatPeso(summary.total_reserved_value)}
-            detail={`${formatPeso(averageReservationValue)} average active booking`}
-            tone="dark"
-          />
-          <AdminMetricCard
-            icon={<Users size={18} />}
-            label="Event Guests"
-            value={formatAdminCompactNumber(totalGuests)}
-            detail={`${events.length} event briefs`}
-          />
-          <AdminMetricCard
-            icon={<Building2 size={18} />}
-            label="Venue Capacity"
-            value={averageCapacity.toLocaleString()}
-            detail="Average capacity per venue"
-          />
+          <AdminMetricCard icon={<TrendingUp size={18} />} label="Confirmation Rate" value={`${confirmationRate}%`} detail="Confirmed against all tracked outcomes" tone="accent" />
+          <AdminMetricCard icon={<Banknote size={18} />} label="Active Value" value={formatPeso(summary.total_reserved_value)} detail={`${formatPeso(averageReservationValue)} avg per booking`} tone="dark" />
+          <AdminMetricCard icon={<Users size={18} />} label="Event Guests" value={formatAdminCompactNumber(totalGuests)} detail={`${events.length} event briefs total`} />
+          <AdminMetricCard icon={<Building2 size={18} />} label="Avg. Venue Capacity" value={averageCapacity.toLocaleString()} detail="Average capacity across all venues" />
         </section>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-          <AdminPanel>
-            <AdminSectionHeader
-              eyebrow="Pipeline"
-              title="Status and payment mix"
-              description="Reservation state and payment type distribution."
-            />
-            <div className="space-y-5">
-              <ProgressRow
-                label="Pending requests"
-                value={summary.pending_requests}
-                total={Math.max(1, totalOutcomes)}
-                detail="Awaiting admin review"
-              />
-              <ProgressRow
-                label="Confirmed reservations"
-                value={summary.confirmed_reservations}
-                total={Math.max(1, totalOutcomes)}
-                detail="Paid and confirmed"
-              />
-              <ProgressRow
-                label="Cancelled reservations"
-                value={summary.cancelled_reservations}
-                total={Math.max(1, totalOutcomes)}
-                detail="Closed or failed"
-              />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[22px] border border-[#E0DDD5] bg-[#FCFBF8] p-4">
-                  <Smartphone size={18} className="mb-3 text-[#2A6558]" />
-                  <p className="text-2xl font-extrabold text-[#1A1817]">
-                    {summary.gcash_pending}
-                  </p>
-                  <p className="text-sm text-[#7C7671]">GCash pending</p>
-                </div>
-                <div className="rounded-[22px] border border-[#E0DDD5] bg-[#FCFBF8] p-4">
-                  <Banknote size={18} className="mb-3 text-[#2A6558]" />
-                  <p className="text-2xl font-extrabold text-[#1A1817]">
-                    {summary.cash_pending}
-                  </p>
-                  <p className="text-sm text-[#7C7671]">Cash pending</p>
-                </div>
-              </div>
-            </div>
-          </AdminPanel>
+        <div className="mt-6 grid gap-6 xl:grid-cols-[2fr_1fr]">
+          <ChartPanel eyebrow="Bookings" title="Bookings over time" description="Number of reservations created in the last 6 months.">
+            {monthlyData.every((m) => m.bookings === 0) ? (
+              <EmptyChart message="No bookings in the last 6 months." />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={monthlyData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} width={28} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val) => [`${val as number} booking${val === 1 ? "" : "s"}`, "Bookings"]} />
+                  <Line type="monotone" dataKey="bookings" stroke={C.teal} strokeWidth={2.5} dot={{ fill: C.teal, strokeWidth: 0, r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </ChartPanel>
 
-          <AdminPanel>
-            <AdminSectionHeader
-              eyebrow="Demand"
-              title="Top venue value"
-              description="Active reservation value grouped by venue."
-            />
-            <div className="space-y-4">
-              {topVenues.length === 0 ? (
-                <div className="rounded-[24px] border border-dashed border-[#DAD6CE] bg-[#FCFBF8] p-6 text-sm text-[#7C7671]">
-                  Reservation demand appears once bookings exist.
-                </div>
-              ) : (
-                topVenues.map(([name, stats]) => (
-                  <div key={name}>
-                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-[#1A1817]">{name}</p>
-                        <p className="text-xs text-[#7C7671]">
-                          {stats.count} active reservation{stats.count === 1 ? "" : "s"}
-                        </p>
-                      </div>
-                      <span className="shrink-0 font-bold text-[#1A1817]">
-                        {formatPeso(stats.value)}
-                      </span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-[#ECE8E1]">
-                      <div
-                        className="h-2 rounded-full bg-[#2A6558]"
-                        style={{ width: `${Math.max((stats.value / topVenueMax) * 100, 8)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </AdminPanel>
+          <ChartPanel eyebrow="Pipeline" title="Reservation status" description="Pending, confirmed, and cancelled split.">
+            {statusData.length === 0 ? (
+              <EmptyChart message="No reservations yet." />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={statusData} cx="50%" cy="46%" innerRadius={58} outerRadius={86} paddingAngle={3} dataKey="value">
+                    {statusData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val, name) => [`${val as number}`, name as string]} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "12px", paddingTop: "6px" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </ChartPanel>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[2fr_1fr]">
+          <ChartPanel eyebrow="Revenue" title="Revenue trends" description="Total confirmed booking value created per month.">
+            {monthlyData.every((m) => m.revenue === 0) ? (
+              <EmptyChart message="No confirmed revenue in the last 6 months." />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={monthlyData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={C.teal} stopOpacity={0.22} />
+                      <stop offset="100%" stopColor={C.teal} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} width={52}
+                    tickFormatter={(v: number) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : `${v}`}
+                  />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val) => [formatPeso(val as number), "Revenue"]} />
+                  <Area type="monotone" dataKey="revenue" stroke={C.teal} strokeWidth={2.5} fill="url(#revenueGradient)" dot={{ fill: C.teal, strokeWidth: 0, r: 4 }} activeDot={{ r: 6 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </ChartPanel>
+
+          <ChartPanel eyebrow="Payments" title="Payment method" description="GCash vs cash payment split.">
+            {paymentMethodData.length === 0 ? (
+              <EmptyChart message="No payment data yet." />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={paymentMethodData} cx="50%" cy="46%" innerRadius={58} outerRadius={86} paddingAngle={3} dataKey="value">
+                    {paymentMethodData.map((_, i) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val, name) => [`${val as number} reservation${val === 1 ? "" : "s"}`, name as string]} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "12px", paddingTop: "6px" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </ChartPanel>
         </div>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-2">
-          <AdminPanel>
-            <AdminSectionHeader
-              eyebrow="Markets"
-              title="City mix"
-              description="Reservation volume grouped by venue or event city."
-            />
-            <div className="space-y-4">
-              {cityMix.map(([city, count]) => (
-                <div key={city}>
-                  <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                    <p className="font-semibold text-[#1A1817]">{city}</p>
-                    <span className="font-bold text-[#1A1817]">{count}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-[#ECE8E1]">
-                    <div
-                      className="h-2 rounded-full bg-[#2A6558]"
-                      style={{ width: `${Math.max((count / cityMax) * 100, 8)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </AdminPanel>
+          <ChartPanel eyebrow="Demand" title="Venue popularity" description="Active booking count per venue (top 7).">
+            {venuePopularity.length === 0 ? (
+              <EmptyChart message="No active bookings yet." />
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(220, venuePopularity.length * 44)}>
+                <BarChart data={venuePopularity} layout="vertical" margin={{ top: 0, right: 24, bottom: 0, left: 0 }} barCategoryGap="28%">
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.grid} horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#1A1817", fontWeight: 600 }} axisLine={false} tickLine={false} width={134} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val) => [`${val as number} booking${val === 1 ? "" : "s"}`, "Bookings"]} />
+                  <Bar dataKey="bookings" fill={C.teal} radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </ChartPanel>
 
-          <AdminPanel>
-            <AdminSectionHeader
-              eyebrow="Coverage"
-              title="Catalog health"
-              description="Venue availability and upcoming active booking coverage."
-            />
-            <div className="space-y-5">
-              <ProgressRow
-                label="Active venues"
-                value={summary.active_venues}
-                total={Math.max(1, venues.length)}
-                detail="Currently visible in recommendations"
-              />
-              <ProgressRow
-                label="Inactive venues"
-                value={summary.inactive_venues}
-                total={Math.max(1, venues.length)}
-                detail="Hidden from customer flows"
-              />
-              <ProgressRow
-                label="Upcoming reservations"
-                value={summary.upcoming_reservations}
-                total={Math.max(1, activeReservations.length)}
-                detail="Active bookings with future dates"
-              />
-              <div className="rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8] p-5">
-                <CalendarCheck size={18} className="mb-3 text-[#2A6558]" />
-                <p className="text-2xl font-extrabold text-[#1A1817]">
-                  {summary.upcoming_reservations}
-                </p>
-                <p className="text-sm text-[#7C7671]">
-                  Upcoming active reservations on the admin calendar
-                </p>
-              </div>
-            </div>
-          </AdminPanel>
+          <ChartPanel eyebrow="Guests" title="Guest volume" description="Total expected guests across reservations per month.">
+            {monthlyData.every((m) => m.guests === 0) ? (
+              <EmptyChart message="No guest data in the last 6 months." />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={monthlyData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }} barCategoryGap="35%">
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} width={38}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)}
+                  />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val) => [formatAdminCompactNumber(val as number), "Guests"]} />
+                  <Bar dataKey="guests" fill={C.lightTeal} radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </ChartPanel>
         </div>
+
+        {occasionData.length > 0 && (
+          <div className="mt-6">
+            <ChartPanel eyebrow="Events" title="Occasion mix" description="Distribution of event types across all saved event briefs.">
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={occasionData} margin={{ top: 4, right: 16, bottom: 48, left: 0 }} barCategoryGap="32%">
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#1A1817", fontWeight: 600 }} axisLine={false} tickLine={false} interval={0} angle={-28} textAnchor="end" dy={8} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#7C7671" }} axisLine={false} tickLine={false} width={28} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val) => [`${val as number} event${val === 1 ? "" : "s"}`, "Events"]} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {occasionData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+          </div>
+        )}
       </main>
     </AdminShell>
   );

@@ -510,7 +510,7 @@ export default function ReserveVenuePage() {
       const res = await fetch(`/api/reservations/${reservationId}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentMethod, gcashNumber, proofOfPayment: proofImage ? true : undefined }),
+        body: JSON.stringify({ paymentMethod, gcashNumber, proofImageBase64: proofImage ?? undefined }),
       });
 
       const json = (await res.json()) as {

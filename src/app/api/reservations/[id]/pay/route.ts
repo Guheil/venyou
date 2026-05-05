@@ -4,15 +4,43 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 interface PayBody {
   paymentMethod?: "cash" | "gcash";
   gcashNumber?: string;
+  proofImageBase64?: string; // data URL: "data:image/...;base64,..."
 }
 
-/** Mock payment confirmation.
- *
- * - Cash: instantly confirm the reservation.
- * - GCash: generate a mock reference, confirm the reservation.
- *
- * In production you'd call a real payment gateway (e.g. PayMongo) here.
- */
+/** Upload a base64 proof image to Supabase storage and return its public URL. */
+async function uploadProofImage(
+  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createSupabaseServerClient>>,
+  userId: string,
+  reservationId: string,
+  dataUrl: string
+): Promise<string | null> {
+  const match = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const ext = mimeType.split("/")[1] ?? "jpg";
+  const base64 = match[2];
+  const buffer = Buffer.from(base64, "base64");
+  const path = `${userId}/${reservationId}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("payment-proofs")
+    .upload(path, buffer, {
+      contentType: mimeType,
+      upsert: true,
+    });
+
+  if (error) {
+    console.error("[uploadProofImage] Storage error:", error.message);
+    return null;
+  }
+
+  const { data: signedData, error: signErr } = await supabase.storage
+    .from("payment-proofs")
+    .createSignedUrl(path, 60 * 60 * 24 * 365); // 1-year signed URL
+
+  if (signErr || !signedData?.signedUrl) return null;
+  return signedData.signedUrl;
+}
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -120,6 +148,12 @@ export async function POST(
     }
   }
 
+  // --- Upload proof of payment image (if provided) ---
+  let proofUrl: string | null = null;
+  if (body.proofImageBase64) {
+    proofUrl = await uploadProofImage(supabase, user.id, reservationId, body.proofImageBase64);
+  }
+
   // Generate a mock payment reference
   const mockRef =
     paymentMethod === "gcash"
@@ -132,7 +166,10 @@ export async function POST(
   if (paymentMethod === "cash") {
     const { error: refErr } = await supabase
       .from("venue_reservations")
-      .update({ payment_reference: mockRef })
+      .update({
+        payment_reference: mockRef,
+        ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
+      })
       .eq("id", reservationId)
       .eq("user_id", user.id);
 
@@ -155,6 +192,14 @@ export async function POST(
   }
 
   // --- GCash: confirm the reservation via the DB function ---
+  if (proofUrl) {
+    await supabase
+      .from("venue_reservations")
+      .update({ payment_proof_url: proofUrl })
+      .eq("id", reservationId)
+      .eq("user_id", user.id);
+  }
+
   const { data: confirmed, error: confirmError } = await supabase.rpc(
     "confirm_reservation_payment",
     {

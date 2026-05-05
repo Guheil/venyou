@@ -26,12 +26,43 @@ import {
   Clock,
   Loader2,
   RefreshCw,
+  Save,
+  Search,
   Sparkles,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 
 const eventStatuses: AdminEventStatus[] = ["Draft", "In Review", "Confirmed"];
+
+const OCCASIONS = [
+  "Wedding Reception",
+  "Corporate Conference",
+  "Birthday Celebration",
+  "Product Launch",
+  "Team Building",
+  "Gala Dinner",
+  "Graduation Party",
+  "Networking Mixer",
+  "Baptism / Christening",
+  "Debut",
+  "Seminar / Workshop",
+  "Other",
+];
+
+const DURATION_OPTIONS = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "10", "12",
+];
+
+interface EventEditDraft {
+  status: AdminEventStatus;
+  occasion: string;
+  eventDate: string;
+  startTime: string;
+  durationHours: string;
+  pax: string;
+}
 
 const eventFilters: { key: "all" | AdminEventStatus; label: string }[] = [
   { key: "all", label: "All" },
@@ -42,13 +73,51 @@ export default function AdminEventsPage() {
   const { accessState, loadingData, refreshData, events } = useAdminData();
   const { success, error: showError } = useToast();
   const [filter, setFilter] = useState<"all" | AdminEventStatus>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [savingEventId, setSavingEventId] = useState<string | null>(null);
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [eventDrafts, setEventDrafts] = useState<Record<string, EventEditDraft>>({});
 
-  const filtered = useMemo(
-    () => events.filter((event) => filter === "all" || event.status === filter),
-    [events, filter]
+  const selectedEvent = useMemo(
+    () => events.find((e) => e.id === selectedEventId) ?? null,
+    [events, selectedEventId]
   );
+
+  const getEventDraft = (eventId: string): EventEditDraft => {
+    if (eventDrafts[eventId]) return eventDrafts[eventId];
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev) return { status: "Draft", occasion: "", eventDate: "", startTime: "", durationHours: "4", pax: "" };
+    return {
+      status: ev.status,
+      occasion: ev.occasion,
+      eventDate: ev.eventDate ?? "",
+      startTime: ev.startTime ?? "",
+      durationHours: String(ev.durationHours ?? 4),
+      pax: String(ev.pax),
+    };
+  };
+
+  const patchDraft = (eventId: string, patch: Partial<EventEditDraft>) => {
+    setEventDrafts((prev) => ({
+      ...prev,
+      [eventId]: { ...getEventDraft(eventId), ...patch },
+    }));
+  };
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return events.filter((event) => {
+      const matchesFilter = filter === "all" || event.status === filter;
+      const matchesSearch =
+        !q ||
+        event.eventName.toLowerCase().includes(q) ||
+        (event.creatorFullName ?? "").toLowerCase().includes(q) ||
+        event.occasion.toLowerCase().includes(q) ||
+        event.city.toLowerCase().includes(q);
+      return matchesFilter && matchesSearch;
+    });
+  }, [events, filter, searchQuery]);
 
   const counts = {
     all: events.length,
@@ -85,6 +154,42 @@ export default function AdminEventsPage() {
     }
 
     success("Event updated", `${eventName} is now ${nextStatus}.`);
+    refreshData();
+  };
+
+  const handleSaveEventDetails = async (eventId: string, eventName: string) => {
+    const draft = getEventDraft(eventId);
+    const pax = Number(draft.pax);
+    const duration = Number(draft.durationHours);
+
+    if (!Number.isFinite(pax) || pax < 1) {
+      showError("Invalid guest count", "Guest count must be at least 1.");
+      return;
+    }
+
+    setSavingEventId(eventId);
+
+    const { error } = await supabase
+      .from("events")
+      .update({
+        status: draft.status,
+        occasion: draft.occasion || undefined,
+        event_date: draft.eventDate || undefined,
+        start_time: draft.startTime || undefined,
+        duration_hours: Number.isFinite(duration) && duration > 0 ? duration : undefined,
+        pax: Math.round(pax),
+      })
+      .eq("id", eventId);
+
+    setSavingEventId(null);
+
+    if (error) {
+      showError("Could not save changes", "Please check your admin access.");
+      return;
+    }
+
+    setEventDrafts((prev) => { const next = { ...prev }; delete next[eventId]; return next; });
+    success("Event saved", `Changes to "${eventName}" were saved.`);
     refreshData();
   };
 
@@ -192,6 +297,18 @@ export default function AdminEventsPage() {
               </span>
             }
           />
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by event name, organizer, occasion or city…"
+                className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
+              />
+            </div>
+          </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {eventFilters.map((item) => (
               <button
@@ -211,124 +328,219 @@ export default function AdminEventsPage() {
           </div>
         </AdminPanel>
 
-        <div className="mt-6 grid gap-5">
+        {/* Compact event cards */}
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((event) => (
-            <article
+            <button
               key={event.id}
-              className="rounded-[28px] border border-[#E0DDD5] bg-white p-5 shadow-sm sm:p-6"
+              type="button"
+              onClick={() => setSelectedEventId(event.id)}
+              className="group rounded-[24px] border border-[#E0DDD5] bg-white p-5 text-left shadow-sm transition hover:border-[#2A6558] hover:shadow-md"
             >
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-[#C8E0DA] bg-[#EAF2F0] px-2.5 py-1 text-xs font-semibold text-[#2A6558]">
-                      {event.status}
-                    </span>
-                    <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-1 text-xs font-semibold text-[#7C7671]">
-                      {event.occasion}
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-extrabold text-[#1A1817]">
-                    {event.eventName}
-                  </h2>
-                  <p className="mt-1 text-sm text-[#7C7671]">
-                    Created {formatAdminDateTime(event.createdAt)} - {event.creatorFullName ?? event.userId}
-                  </p>
-                </div>
-                <div className="grid gap-3 xl:w-[320px]">
-                  <div className="rounded-2xl bg-[#1A1817] px-5 py-4 text-white xl:text-right">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7BC4B8]">
-                      Budget
-                    </p>
-                    <p className="mt-1 text-lg font-extrabold">
-                      {formatAdminEventBudget(event)}
-                    </p>
-                    <p className="text-xs text-white/60">
-                      {event.pax.toLocaleString()} guests
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-[#E0DDD5] bg-[#FCFBF8] p-4">
-                    <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#2A6558]">
-                      Manage event
-                    </p>
-                    <label>
-                      <span className="mb-1.5 block text-xs font-semibold text-[#7C7671]">
-                        Status
-                      </span>
-                      <select
-                        value={event.status}
-                        disabled={
-                          savingEventId === event.id || deletingEventId === event.id
-                        }
-                        onChange={(changeEvent) =>
-                          void handleUpdateEventStatus(
-                            event.id,
-                            event.eventName,
-                            changeEvent.target.value as AdminEventStatus
-                          )
-                        }
-                        className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
-                      >
-                        {eventStatuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteEvent(event.id, event.eventName)}
-                      disabled={
-                        savingEventId === event.id || deletingEventId === event.id
-                      }
-                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#F2C6BE] bg-[#FDECEA] px-4 py-2 text-xs font-semibold text-[#B42318] transition hover:border-[#B42318] disabled:opacity-60"
-                    >
-                      {deletingEventId === event.id ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={14} />
-                      )}
-                      Delete event
-                    </button>
-                  </div>
-                </div>
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                    event.status === "Confirmed"
+                      ? "border border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
+                      : event.status === "In Review"
+                      ? "border border-[#FDE8BB] bg-[#FEF6E4] text-[#92600A]"
+                      : "border border-[#E0DDD5] bg-[#FCFBF8] text-[#7C7671]"
+                  }`}
+                >
+                  {event.status}
+                </span>
+                <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-0.5 text-[11px] font-semibold text-[#7C7671]">
+                  {event.occasion}
+                </span>
               </div>
-
-              <div className="mt-6 grid gap-4 xl:grid-cols-3">
-                <DetailBlock title="Brief">
-                  <DetailRow label="Description" value={event.description || "None"} />
-                  <DetailRow label="Tone" value={event.toneKeywords || "None"} />
-                  <DetailRow label="Notes" value={event.extraNotes || "None"} />
-                  <DetailRow
-                    label="Amenities"
-                    value={event.amenities.length ? event.amenities.join(", ") : "None"}
-                  />
-                  <DetailRow label="Catering" value={event.catering} />
-                </DetailBlock>
-
-                <DetailBlock title="Location & schedule">
-                  <DetailRow
-                    label="Location"
-                    value={`${event.city}${event.area ? `, ${event.area}` : ""}`}
-                  />
-                  <DetailRow label="Radius" value={`${event.radiusKm} km`} />
-                  <DetailRow label="Setting" value={event.setting} />
-                  <DetailRow label="Date" value={formatAdminDate(event.eventDate)} />
-                  <DetailRow label="Start" value={formatAdminTime(event.startTime)} />
-                  <DetailRow label="Duration" value={`${event.durationHours} hours`} />
-                </DetailBlock>
-
-                <DetailBlock title="Recommendation state">
-                  <DetailRow label="Venue count" value={String(event.venueCount)} />
-                  <DetailRow label="Top venue" value={event.topVenueName ?? "None"} />
-                  <DetailRow label="Top venue ID" value={event.topVenueId ?? "None"} mono />
-                  <DetailRow label="Event ID" value={event.id} mono />
-                  <DetailRow label="Updated" value={formatAdminDateTime(event.updatedAt)} />
-                </DetailBlock>
+              <p className="truncate text-base font-extrabold text-[#1A1817] group-hover:text-[#2A6558]">
+                {event.eventName}
+              </p>
+              <p className="mt-0.5 truncate text-xs text-[#7C7671]">
+                {event.creatorFullName ?? "Unknown user"} &middot; {formatAdminDate(event.eventDate)}
+              </p>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="rounded-xl bg-[#1A1817] px-3 py-1.5 text-xs font-bold text-white">
+                  {formatAdminEventBudget(event)}
+                </span>
+                <span className="flex items-center gap-1 text-xs text-[#7C7671]">
+                  <Users size={12} />
+                  {formatAdminCompactNumber(event.pax)}
+                </span>
               </div>
-            </article>
+            </button>
           ))}
         </div>
+
+        {/* Event detail + edit modal */}
+        {selectedEvent && (() => {
+          const draft = getEventDraft(selectedEvent.id);
+          const isBusy = savingEventId === selectedEvent.id || deletingEventId === selectedEvent.id;
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+              onClick={(e) => { if (e.target === e.currentTarget) setSelectedEventId(null); }}
+            >
+              <div className="relative flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-4 border-b border-[#E0DDD5] bg-[#FCFBF8] px-6 py-5">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                          selectedEvent.status === "Confirmed"
+                            ? "border border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
+                            : selectedEvent.status === "In Review"
+                            ? "border border-[#FDE8BB] bg-[#FEF6E4] text-[#92600A]"
+                            : "border border-[#E0DDD5] bg-white text-[#7C7671]"
+                        }`}
+                      >
+                        {selectedEvent.status}
+                      </span>
+                      <span className="rounded-full border border-[#E0DDD5] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#7C7671]">
+                        {selectedEvent.occasion}
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-extrabold text-[#1A1817]">{selectedEvent.eventName}</h2>
+                    <p className="mt-0.5 text-xs text-[#7C7671]">
+                      {selectedEvent.creatorFullName ?? "Unknown user"} &middot; Created {formatAdminDateTime(selectedEvent.createdAt)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEventId(null)}
+                    className="shrink-0 rounded-xl border border-[#E0DDD5] bg-white p-2 text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817]"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="overflow-y-auto p-6">
+                  {/* Read-only detail */}
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <DetailBlock title="Brief">
+                      <DetailRow label="Description" value={selectedEvent.description || "None"} />
+                      <DetailRow label="Tone" value={selectedEvent.toneKeywords || "None"} />
+                      <DetailRow label="Notes" value={selectedEvent.extraNotes || "None"} />
+                      <DetailRow label="Amenities" value={selectedEvent.amenities.length ? selectedEvent.amenities.join(", ") : "None"} />
+                      <DetailRow label="Catering" value={selectedEvent.catering} />
+                    </DetailBlock>
+                    <DetailBlock title="Location & schedule">
+                      <DetailRow label="Location" value={`${selectedEvent.city}${selectedEvent.area ? `, ${selectedEvent.area}` : ""}`} />
+                      <DetailRow label="Radius" value={`${selectedEvent.radiusKm} km`} />
+                      <DetailRow label="Setting" value={selectedEvent.setting} />
+                      <DetailRow label="Date" value={formatAdminDate(selectedEvent.eventDate)} />
+                      <DetailRow label="Start" value={formatAdminTime(selectedEvent.startTime)} />
+                      <DetailRow label="Duration" value={`${selectedEvent.durationHours} hours`} />
+                    </DetailBlock>
+                    <DetailBlock title="Recommendation state">
+                      <DetailRow label="Matched venues" value={String(selectedEvent.venueCount)} />
+                      <DetailRow label="Top match" value={selectedEvent.topVenueName ?? "None yet"} />
+                      <DetailRow label="Updated" value={formatAdminDateTime(selectedEvent.updatedAt)} />
+                    </DetailBlock>
+                  </div>
+
+                  {/* Editable fields */}
+                  <div className="mt-5 rounded-[24px] border border-[#C8E0DA] bg-[#F8FBFA] p-5">
+                    <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">Edit details</p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label>
+                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Status</span>
+                        <select
+                          value={draft.status}
+                          disabled={isBusy}
+                          onChange={(e) => patchDraft(selectedEvent.id, { status: e.target.value as AdminEventStatus })}
+                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
+                        >
+                          {eventStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </label>
+
+                      <label>
+                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Occasion</span>
+                        <select
+                          value={draft.occasion}
+                          disabled={isBusy}
+                          onChange={(e) => patchDraft(selectedEvent.id, { occasion: e.target.value })}
+                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
+                        >
+                          {OCCASIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </label>
+
+                      <label>
+                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Event date</span>
+                        <input
+                          type="date"
+                          value={draft.eventDate}
+                          disabled={isBusy}
+                          onChange={(e) => patchDraft(selectedEvent.id, { eventDate: e.target.value })}
+                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
+                        />
+                      </label>
+
+                      <label>
+                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Start time</span>
+                        <input
+                          type="time"
+                          value={draft.startTime}
+                          disabled={isBusy}
+                          onChange={(e) => patchDraft(selectedEvent.id, { startTime: e.target.value })}
+                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
+                        />
+                      </label>
+
+                      <label>
+                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Duration (hours)</span>
+                        <select
+                          value={draft.durationHours}
+                          disabled={isBusy}
+                          onChange={(e) => patchDraft(selectedEvent.id, { durationHours: e.target.value })}
+                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
+                        >
+                          {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d} {d === "1" ? "hour" : "hours"}</option>)}
+                        </select>
+                      </label>
+
+                      <label>
+                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Guest count (pax)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={draft.pax}
+                          disabled={isBusy}
+                          onChange={(e) => patchDraft(selectedEvent.id, { pax: e.target.value })}
+                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveEventDetails(selectedEvent.id, selectedEvent.eventName)}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-2 rounded-xl bg-[#2A6558] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#215249] disabled:opacity-60"
+                      >
+                        {savingEventId === selectedEvent.id ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                        Save changes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteEvent(selectedEvent.id, selectedEvent.eventName)}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-2 rounded-xl border border-[#F2C6BE] bg-[#FDECEA] px-4 py-2 text-sm font-semibold text-[#B42318] transition hover:border-[#B42318] disabled:opacity-60"
+                      >
+                        {deletingEventId === selectedEvent.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        Delete event
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </main>
     </AdminShell>
   );

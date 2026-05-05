@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useEffect, useState } from "react";
 import AdminShell from "@/components/AdminShell";
 import {
   AdminDeniedState,
   AdminLoadingState,
   AdminMetricCard,
 } from "@/components/admin/AdminUI";
-import { formatAdminDateTime } from "@/lib/adminData";
+import { formatAdminDateTime, type VenueSetting } from "@/lib/adminData";
 import { formatPeso } from "@/lib/budget";
 import { ROUTES } from "@/lib/routes";
 import { supabase } from "@/lib/supabase/client";
@@ -17,17 +17,56 @@ import { useToast } from "@/lib/ToastContext";
 import {
   Building2,
   CheckCircle2,
+  Loader2,
+  MapPin,
   PencilLine,
   Plus,
   RefreshCw,
+  Search,
   Star,
   Store,
+  UploadCloud,
   Users,
+  X,
   XCircle,
-  Loader2,
 } from "lucide-react";
 
+const VENUE_TYPES = [
+  "Hotel / Resort",
+  "Banquet Hall",
+  "Event Hall",
+  "Garden Venue",
+  "Beach Resort",
+  "Restaurant / Café",
+  "Rooftop",
+  "Clubhouse / Country Club",
+  "Convention Center",
+  "Function Room",
+  "Villa / Private Estate",
+  "Museum / Gallery",
+  "Other",
+];
+
+const VENUE_CITIES = [
+  "Manila", "Quezon City", "Makati", "Taguig", "Pasig",
+  "Mandaluyong", "Marikina", "Caloocan", "Las Piñas", "Muntinlupa",
+  "Parañaque", "Pasay", "San Juan", "Malabon", "Navotas", "Valenzuela",
+  "Pateros", "Antipolo", "Cainta", "Taytay", "Bacoor", "Dasmariñas",
+  "General Trias", "Tagaytay", "Batangas City", "Biñan", "Calamba",
+  "Santa Rosa", "San Pedro", "Malolos", "Meycauayan",
+  "Cebu City", "Lapu-Lapu", "Mandaue", "Bacolod", "Iloilo City",
+  "Davao City", "Cagayan de Oro", "Zamboanga City",
+];
+
 interface VenueDraft {
+  name: string;
+  type: string;
+  address: string;
+  city: string;
+  area: string;
+  setting: VenueSetting;
+  tags: string;
+  description: string;
   capacity: string;
   pricePerHead: string;
   rating: string;
@@ -41,37 +80,93 @@ export default function AdminVenuesPage() {
   const { success, error: showError } = useToast();
   const [drafts, setDrafts] = useState<Record<string, VenueDraft>>({});
   const [savingVenueId, setSavingVenueId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [settingFilter, setSettingFilter] = useState<"all" | VenueSetting>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreviewUrl, setEditImagePreviewUrl] = useState("");
+  const [editImageInputKey, setEditImageInputKey] = useState(0);
+
+  useEffect(() => {
+    setEditImageFile(null);
+    setEditImagePreviewUrl((prev) => {
+      if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return "";
+    });
+    setEditImageInputKey((k) => k + 1);
+  }, [selectedVenueId]);
+
+  const selectedVenue = useMemo(
+    () => venues.find((v) => v.id === selectedVenueId) ?? null,
+    [venues, selectedVenueId]
+  );
+
+  const filteredVenues = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return venues.filter((venue) => {
+      const matchesSearch =
+        !q ||
+        venue.name.toLowerCase().includes(q) ||
+        venue.city.toLowerCase().includes(q) ||
+        venue.type.toLowerCase().includes(q) ||
+        (venue.area ?? "").toLowerCase().includes(q);
+      const matchesSetting = settingFilter === "all" || venue.setting === settingFilter;
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && venue.isActive) ||
+        (statusFilter === "inactive" && !venue.isActive);
+      return matchesSearch && matchesSetting && matchesStatus;
+    });
+  }, [venues, searchQuery, settingFilter, statusFilter]);
+
+  const getDefaultDraft = (venue: (typeof venues)[number]): VenueDraft => ({
+    name: venue.name,
+    type: venue.type,
+    address: venue.address,
+    city: venue.city,
+    area: venue.area,
+    setting: venue.setting,
+    tags: venue.tags.join(", "),
+    description: venue.description,
+    capacity: String(venue.capacity),
+    pricePerHead: String(venue.pricePerHead),
+    rating: String(venue.rating),
+    reviewCount: String(venue.reviewCount),
+    baseDistanceKm: String(venue.baseDistanceKm),
+    isActive: venue.isActive,
+  });
 
   const updateDraft = (venueId: string, patch: Partial<VenueDraft>) => {
+    const venue = venues.find((v) => v.id === venueId)!;
     setDrafts((prev) => ({
       ...prev,
-      [venueId]: {
-        ...(prev[venueId] ?? {
-          capacity: "",
-          pricePerHead: "",
-          rating: "",
-          reviewCount: "",
-          baseDistanceKm: "",
-          isActive: true,
-        }),
-        ...patch,
-      },
+      [venueId]: { ...(prev[venueId] ?? getDefaultDraft(venue)), ...patch },
     }));
   };
 
   const getDraft = (venue: (typeof venues)[number]): VenueDraft =>
-    drafts[venue.id] ?? {
-      capacity: String(venue.capacity),
-      pricePerHead: String(venue.pricePerHead),
-      rating: String(venue.rating),
-      reviewCount: String(venue.reviewCount),
-      baseDistanceKm: String(venue.baseDistanceKm),
-      isActive: venue.isActive,
-    };
+    drafts[venue.id] ?? getDefaultDraft(venue);
+
+  const uploadEditImage = async (file: File): Promise<string> => {
+    const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+    const path = `venues/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+    const { error } = await supabase.storage
+      .from("venue-images")
+      .upload(path, file, { cacheControl: "3600", contentType: file.type, upsert: false });
+    if (error) throw error;
+    return supabase.storage.from("venue-images").getPublicUrl(path).data.publicUrl;
+  };
 
   const handleSaveVenue = async (venueId: string, venueName: string) => {
-    const draft = drafts[venueId];
-    if (!draft) return;
+    const venue = venues.find((v) => v.id === venueId);
+    if (!venue) return;
+    const draft = drafts[venueId] ?? getDefaultDraft(venue);
+
+    if (!draft.name.trim() || !draft.type.trim() || !draft.address.trim() || !draft.city.trim()) {
+      showError("Missing required fields", "Name, type, address, and city are required.");
+      return;
+    }
 
     const capacity = Number(draft.capacity);
     const pricePerHead = Number(draft.pricePerHead);
@@ -98,6 +193,17 @@ export default function AdminVenuesPage() {
 
     setSavingVenueId(venueId);
 
+    let uploadedImageUrl: string | undefined;
+    if (editImageFile) {
+      try {
+        uploadedImageUrl = await uploadEditImage(editImageFile);
+      } catch {
+        setSavingVenueId(null);
+        showError("Could not upload image", "Check your storage access and try again.");
+        return;
+      }
+    }
+
     const { error } = await supabase
       .from("venues")
       .update({
@@ -107,6 +213,15 @@ export default function AdminVenuesPage() {
         review_count: Math.round(reviewCount),
         base_distance_km: baseDistanceKm,
         is_active: draft.isActive,
+        name: draft.name.trim(),
+        type: draft.type.trim(),
+        address: draft.address.trim(),
+        city: draft.city.trim(),
+        area: draft.area.trim(),
+        setting: draft.setting,
+        tags: draft.tags.split(",").map((t) => t.trim()).filter(Boolean),
+        description: draft.description.trim(),
+        ...(uploadedImageUrl ? { image_url: uploadedImageUrl } : {}),
       })
       .eq("id", venueId);
 
@@ -205,200 +320,352 @@ export default function AdminVenuesPage() {
           />
         </section>
 
-        <div className="mt-6 grid gap-5">
-          {venues.map((venue) => {
-            const draft = getDraft(venue);
+        <div className="mt-6 rounded-[24px] border border-[#E0DDD5] bg-white p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <div className="relative flex-1">
+              <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, city, type or area…"
+                className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(["all", "active", "inactive"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setStatusFilter(key)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    statusFilter === key
+                      ? "border-[#2A6558] bg-[#2A6558] text-white"
+                      : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]"
+                  }`}
+                >
+                  {key === "all" ? "All" : key.charAt(0).toUpperCase() + key.slice(1)}
+                </button>
+              ))}
+              {(["all", "indoor", "outdoor", "both"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSettingFilter(key)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    settingFilter === key
+                      ? "border-[#1A1817] bg-[#1A1817] text-white"
+                      : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#1A1817]"
+                  }`}
+                >
+                  {{ all: "Any setting", indoor: "Indoor", outdoor: "Outdoor", both: "Both" }[key]}
+                </button>
+              ))}
+            </div>
+            <span className="shrink-0 rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-3 py-1.5 text-xs font-semibold text-[#7C7671]">
+              {filteredVenues.length} of {venues.length}
+            </span>
+          </div>
+        </div>
 
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {filteredVenues.map((venue) => {
+            const draft = getDraft(venue);
             return (
-              <article
+              <button
                 key={venue.id}
-                className="overflow-hidden rounded-[28px] border border-[#E0DDD5] bg-white shadow-sm"
+                type="button"
+                onClick={() => setSelectedVenueId(venue.id)}
+                className="group overflow-hidden rounded-[24px] border border-[#E0DDD5] bg-white text-left shadow-sm transition hover:border-[#2A6558] hover:shadow-md"
               >
-                <div className="h-2" style={{ background: venue.imageColor }} />
-                <div className="p-5 sm:p-6">
-                  <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="min-w-0">
-                      <div className="mb-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                            draft.isActive
-                              ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
-                              : "border-[#E0DDD5] bg-[#F8F6F1] text-[#7C7671]"
-                          }`}
-                        >
-                          {draft.isActive ? "Active" : "Inactive"}
-                        </span>
-                        <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-1 text-xs font-semibold text-[#7C7671]">
-                          {venue.setting}
-                        </span>
-                      </div>
-                      <h2 className="text-xl font-extrabold text-[#1A1817]">
-                        {venue.name}
-                      </h2>
-                      <p className="mt-1 text-sm text-[#7C7671]">
-                        {venue.type} - Updated {formatAdminDateTime(venue.updatedAt)}
+                <div className="relative h-36 overflow-hidden rounded-t-[24px]">
+                  {venue.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={venue.imageUrl}
+                      alt={venue.name}
+                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-full w-full items-center justify-center"
+                      style={{ background: venue.imageColor ?? "linear-gradient(135deg,#BDD7D2,#D6E8E4)" }}
+                    >
+                      <Building2 size={32} className="opacity-25 text-[#2A6558]" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        draft.isActive
+                          ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
+                          : "border-[#E0DDD5] bg-[#F8F6F1] text-[#7C7671]"
+                      }`}
+                    >
+                      {draft.isActive ? "Active" : "Inactive"}
+                    </span>
+                    <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2 py-0.5 text-[11px] font-semibold text-[#7C7671]">
+                      {venue.setting}
+                    </span>
+                  </div>
+                  <p className="text-base font-extrabold text-[#1A1817] group-hover:text-[#2A6558]">
+                    {venue.name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[#7C7671]">{venue.type}</p>
+                  <div className="mt-2 flex items-center gap-1 text-xs text-[#7C7671]">
+                    <MapPin size={11} />
+                    {venue.city}{venue.area ? `, ${venue.area}` : ""}
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[#F0EDE8] pt-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#7C7671]">Capacity</p>
+                      <p className="mt-0.5 text-sm font-bold text-[#1A1817]">{venue.capacity.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#7C7671]">Per head</p>
+                      <p className="mt-0.5 text-sm font-bold text-[#1A1817]">{formatPeso(venue.pricePerHead)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#7C7671]">Rating</p>
+                      <p className="mt-0.5 flex items-center gap-1 text-sm font-bold text-[#1A1817]">
+                        <Star size={11} className="fill-amber-400 text-amber-400" />
+                        {venue.rating}
                       </p>
                     </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </main>
+
+      {/* Venue detail modal */}
+      {selectedVenue && (() => {
+        const draft = getDraft(selectedVenue);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-8"
+            onClick={() => setSelectedVenueId(null)}
+          >
+            <div
+              className="w-full max-w-3xl rounded-[28px] bg-white shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="relative h-48 sm:h-56 overflow-hidden rounded-t-[28px]">
+                {selectedVenue.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={selectedVenue.imageUrl}
+                    alt={selectedVenue.name}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className="flex h-full w-full items-center justify-center"
+                    style={{ background: selectedVenue.imageColor ?? "linear-gradient(135deg,#BDD7D2,#D6E8E4)" }}
+                  >
+                    <Building2 size={56} className="opacity-20 text-[#2A6558]" />
+                  </div>
+                )}
+              </div>
+              <div className="p-6 sm:p-8">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                          draft.isActive
+                            ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
+                            : "border-[#E0DDD5] bg-[#F8F6F1] text-[#7C7671]"
+                        }`}
+                      >
+                        {draft.isActive ? "Active" : "Inactive"}
+                      </span>
+                      <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-1 text-xs font-semibold text-[#7C7671]">
+                        {selectedVenue.setting}
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-extrabold text-[#1A1817]">{selectedVenue.name}</h2>
+                    <p className="mt-1 text-sm text-[#7C7671]">
+                      {selectedVenue.type} — Updated {formatAdminDateTime(selectedVenue.updatedAt)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVenueId(null)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#E0DDD5] text-[#7C7671] hover:border-[#1A1817] hover:text-[#1A1817]"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="mt-6 rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8] p-5">
+                  <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">Edit venue details</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <ModalField label="Name">
+                      <input value={draft.name} onChange={(e) => updateDraft(selectedVenue.id, { name: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Type">
+                      <select value={draft.type} onChange={(e) => updateDraft(selectedVenue.id, { type: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-medium text-[#1A1817] outline-none transition focus:border-[#2A6558]">
+                        {VENUE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </ModalField>
+                    <ModalField label="Address" className="sm:col-span-2">
+                      <input value={draft.address} onChange={(e) => updateDraft(selectedVenue.id, { address: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="City">
+                      <select value={draft.city} onChange={(e) => updateDraft(selectedVenue.id, { city: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-medium text-[#1A1817] outline-none transition focus:border-[#2A6558]">
+                        {VENUE_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </ModalField>
+                    <ModalField label="Area / Barangay">
+                      <input value={draft.area} placeholder="e.g. BGC, Eastwood" onChange={(e) => updateDraft(selectedVenue.id, { area: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Setting">
+                      <select value={draft.setting} onChange={(e) => updateDraft(selectedVenue.id, { setting: e.target.value as VenueSetting })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-medium text-[#1A1817] outline-none transition focus:border-[#2A6558]">
+                        <option value="indoor">Indoor</option>
+                        <option value="outdoor">Outdoor</option>
+                        <option value="both">Both</option>
+                      </select>
+                    </ModalField>
+                    <ModalField label="Capacity">
+                      <input type="number" min={1} value={draft.capacity} onChange={(e) => updateDraft(selectedVenue.id, { capacity: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Price per head (₱)">
+                      <input type="number" min={0} value={draft.pricePerHead} onChange={(e) => updateDraft(selectedVenue.id, { pricePerHead: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Rating (0–5)">
+                      <select value={draft.rating} onChange={(e) => updateDraft(selectedVenue.id, { rating: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-medium text-[#1A1817] outline-none transition focus:border-[#2A6558]">
+                        {Array.from({ length: 9 }, (_, i) => String(((i + 1) * 0.5 + 0.5).toFixed(1))).map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </ModalField>
+                    <ModalField label="Review count">
+                      <input type="number" min={0} value={draft.reviewCount} onChange={(e) => updateDraft(selectedVenue.id, { reviewCount: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Base distance (km)">
+                      <input type="number" min={0} step={0.1} value={draft.baseDistanceKm} onChange={(e) => updateDraft(selectedVenue.id, { baseDistanceKm: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Tags (comma-separated)" className="sm:col-span-2">
+                      <input value={draft.tags} placeholder="Wedding, Ballroom, Corporate" onChange={(e) => updateDraft(selectedVenue.id, { tags: e.target.value })} className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                    <ModalField label="Description" className="sm:col-span-2">
+                      <textarea rows={3} value={draft.description} onChange={(e) => updateDraft(selectedVenue.id, { description: e.target.value })} className="w-full resize-none rounded-xl border border-[#E0DDD5] bg-white px-3 py-2.5 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]" />
+                    </ModalField>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
                     <button
                       type="button"
-                      onClick={() =>
-                        updateDraft(venue.id, {
-                          isActive: !draft.isActive,
-                        })
-                      }
-                      className={`inline-flex items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                      onClick={() => updateDraft(selectedVenue.id, { isActive: !draft.isActive })}
+                      className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                         draft.isActive
                           ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
                           : "border-[#E0DDD5] bg-white text-[#7C7671]"
                       }`}
                     >
-                      {draft.isActive ? "Active" : "Inactive"}
+                      {draft.isActive ? "Active — click to deactivate" : "Inactive — click to activate"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveVenue(selectedVenue.id, selectedVenue.name)}
+                      disabled={savingVenueId === selectedVenue.id}
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#1A1817] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2A6558] disabled:opacity-60"
+                    >
+                      {savingVenueId === selectedVenue.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <PencilLine size={14} />
+                      )}
+                      Save changes
                     </button>
                   </div>
-
-                  <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_1fr_1.2fr]">
-                    <DetailBlock title="Identity">
-                      <DetailRow label="Venue ID" value={venue.id} mono />
-                      <DetailRow label="Name" value={venue.name} />
-                      <DetailRow label="Type" value={venue.type} />
-                      <DetailRow label="Description" value={venue.description || "None"} />
-                      <DetailRow
-                        label="Tags"
-                        value={venue.tags.length ? venue.tags.join(", ") : "None"}
-                      />
-                    </DetailBlock>
-
-                    <DetailBlock title="Location">
-                      <DetailRow label="Address" value={venue.address} />
-                      <DetailRow label="City" value={venue.city} />
-                      <DetailRow label="Area" value={venue.area || "None"} />
-                      <DetailRow
-                        label="Base distance"
-                        value={`${venue.baseDistanceKm.toLocaleString()} km`}
-                      />
-                      <DetailRow label="Image URL" value={venue.imageUrl || "None"} />
-                    </DetailBlock>
-
-                    <DetailBlock title="Live fields">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <LabeledInput
-                          label="Capacity"
-                          value={draft.capacity}
-                          onChange={(value) => updateDraft(venue.id, { capacity: value })}
-                        />
-                        <LabeledInput
-                          label="Price/head"
-                          value={draft.pricePerHead}
-                          onChange={(value) =>
-                            updateDraft(venue.id, { pricePerHead: value })
-                          }
-                        />
-                        <LabeledInput
-                          label="Rating"
-                          value={draft.rating}
-                          onChange={(value) => updateDraft(venue.id, { rating: value })}
-                        />
-                        <LabeledInput
-                          label="Reviews"
-                          value={draft.reviewCount}
-                          onChange={(value) =>
-                            updateDraft(venue.id, { reviewCount: value })
-                          }
-                        />
-                        <LabeledInput
-                          label="Distance km"
-                          value={draft.baseDistanceKm}
-                          onChange={(value) =>
-                            updateDraft(venue.id, { baseDistanceKm: value })
-                          }
-                        />
-                      </div>
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#1A1817]">
-                          <Star size={14} className="fill-amber-400 text-amber-400" />
-                          {venue.rating.toLocaleString()} rating -{" "}
-                          {formatPeso(venue.pricePerHead)} per head
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => void handleSaveVenue(venue.id, venue.name)}
-                          disabled={savingVenueId === venue.id}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1A1817] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#2A6558] disabled:opacity-60"
-                        >
-                          {savingVenueId === venue.id ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <PencilLine size={14} />
-                          )}
-                          Save changes
-                        </button>
-                      </div>
-                    </DetailBlock>
-                  </div>
                 </div>
-              </article>
-            );
-          })}
-        </div>
-      </main>
+
+                {/* Update venue photo */}
+                <div className="mt-4 rounded-[24px] border border-dashed border-[#C8E0DA] bg-[#F8FBFA] p-4">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">Update photo</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label
+                      htmlFor="edit-venue-image"
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#2A6558] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#215249]"
+                    >
+                      <UploadCloud size={15} />
+                      Choose new photo
+                    </label>
+                    {editImageFile && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditImageFile(null);
+                          setEditImagePreviewUrl((prev) => { if (prev.startsWith("blob:")) URL.revokeObjectURL(prev); return ""; });
+                          setEditImageInputKey((k) => k + 1);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#E0DDD5] bg-white px-3 py-2 text-xs font-semibold text-[#7C7671] hover:border-[#B42318] hover:text-[#B42318] transition"
+                      >
+                        <X size={13} /> Remove
+                      </button>
+                    )}
+                    <input
+                      key={editImageInputKey}
+                      id="edit-venue-image"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        if (!file) return;
+                        if (!["image/jpeg","image/png","image/webp","image/gif"].includes(file.type)) {
+                          showError("Unsupported image", "Use JPG, PNG, WebP, or GIF.");
+                          setEditImageInputKey((k) => k + 1);
+                          return;
+                        }
+                        if (file.size > 5 * 1024 * 1024) {
+                          showError("Image too large", "Max 5 MB.");
+                          setEditImageInputKey((k) => k + 1);
+                          return;
+                        }
+                        setEditImagePreviewUrl((prev) => { if (prev.startsWith("blob:")) URL.revokeObjectURL(prev); return URL.createObjectURL(file); });
+                        setEditImageFile(file);
+                      }}
+                    />
+                    <span className="text-xs text-[#7C7671]">
+                      {editImageFile ? `${editImageFile.name} — ${Math.ceil(editImageFile.size / 1024).toLocaleString()} KB` : "JPG, PNG, WebP or GIF, max 5 MB"}
+                    </span>
+                  </div>
+                  {editImagePreviewUrl && (
+                    <div className="mt-3 h-28 overflow-hidden rounded-xl">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={editImagePreviewUrl} alt="New photo preview" className="h-full w-full object-cover" />
+                    </div>
+                  )}
+                </div>
+
+
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </AdminShell>
   );
 }
 
-function DetailBlock({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8] p-4">
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">
-        {title}
-      </p>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function DetailRow({
+function ModalField({
   label,
-  value,
-  mono,
+  children,
+  className = "",
 }: {
   label: string;
-  value: string;
-  mono?: boolean;
+  children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="grid gap-1 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
-      <span className="text-xs font-semibold text-[#7C7671]">{label}</span>
-      <span
-        className={`min-w-0 break-words font-medium text-[#1A1817] ${
-          mono ? "font-mono text-xs" : ""
-        }`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function LabeledInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label>
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7C7671]">
-        {label}
-      </span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        inputMode="decimal"
-        className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558]"
-      />
+    <label className={className}>
+      <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">{label}</span>
+      {children}
     </label>
   );
 }
+

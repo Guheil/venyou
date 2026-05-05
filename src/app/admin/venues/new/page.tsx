@@ -39,9 +39,73 @@ interface NewVenueForm {
   tags: string;
   description: string;
   imageUrl: string;
-  imageColor: string;
   baseDistanceKm: string;
 }
+
+const VENUE_TYPES = [
+  "Hotel / Resort",
+  "Banquet Hall",
+  "Event Hall",
+  "Garden Venue",
+  "Beach Resort",
+  "Restaurant / Café",
+  "Rooftop",
+  "Clubhouse / Country Club",
+  "Convention Center",
+  "Function Room",
+  "Villa / Private Estate",
+  "Museum / Gallery",
+  "Other",
+];
+
+const VENUE_CITIES = [
+  // Metro Manila
+  "Manila",
+  "Quezon City",
+  "Makati",
+  "Taguig",
+  "Pasig",
+  "Mandaluyong",
+  "Marikina",
+  "Caloocan",
+  "Las Piñas",
+  "Muntinlupa",
+  "Parañaque",
+  "Pasay",
+  "San Juan",
+  "Malabon",
+  "Navotas",
+  "Valenzuela",
+  "Pateros",
+  // Nearby / Provincial
+  "Antipolo",
+  "Cainta",
+  "Taytay",
+  "Bacoor",
+  "Dasmariñas",
+  "General Trias",
+  "Tagaytay",
+  "Batangas City",
+  "Biñan",
+  "Calamba",
+  "Santa Rosa",
+  "San Pedro",
+  "Malolos",
+  "Meycauayan",
+  // Visayas / Mindanao
+  "Cebu City",
+  "Lapu-Lapu",
+  "Mandaue",
+  "Bacolod",
+  "Iloilo City",
+  "Davao City",
+  "Cagayan de Oro",
+  "Zamboanga City",
+];
+
+const RATING_OPTIONS = Array.from({ length: 9 }, (_, i) =>
+  String(((i + 1) * 0.5 + 0.5).toFixed(1))
+);
 
 const emptyForm: NewVenueForm = {
   name: "",
@@ -57,7 +121,6 @@ const emptyForm: NewVenueForm = {
   tags: "",
   description: "",
   imageUrl: "",
-  imageColor: "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
   baseDistanceKm: "3",
 };
 
@@ -173,13 +236,10 @@ export default function AdminNewVenuePage() {
 
     try {
       imageUrl = await uploadVenueImage();
-    } catch {
-      setCreating(false);
-      showError(
-        "Could not upload venue image",
-        "Check that the venue image storage migration has been applied."
-      );
-      return;
+    } catch (uploadErr) {
+      console.error("[add-venue] image upload failed (continuing without image):", uploadErr);
+      // Non-blocking — venue is still created, just without a photo.
+      imageUrl = "";
     }
 
     const { error } = await supabase.from("venues").insert({
@@ -195,7 +255,7 @@ export default function AdminNewVenuePage() {
       setting: form.setting,
       tags,
       description: form.description.trim(),
-      image_color: form.imageColor.trim() || emptyForm.imageColor,
+      image_color: "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
       image_url: imageUrl,
       base_distance_km: Number.isFinite(baseDistanceKm) ? Math.max(0, baseDistanceKm) : 3,
       is_active: true,
@@ -204,7 +264,12 @@ export default function AdminNewVenuePage() {
     setCreating(false);
 
     if (error) {
-      showError("Could not create venue", "A venue with the same name/address may already exist.");
+      setCreating(false);
+      console.error("[add-venue] DB insert failed:", error);
+      showError(
+        "Could not create venue",
+        error.message || "A venue with the same name/address may already exist."
+      );
       return;
     }
 
@@ -263,26 +328,45 @@ export default function AdminNewVenuePage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField label="Name" value={form.name} onChange={(value) => updateForm({ name: value })} />
-            <TextField label="Type" value={form.type} onChange={(value) => updateForm({ type: value })} />
+            <SelectField
+              label="Type"
+              value={form.type}
+              onChange={(value) => updateForm({ type: value })}
+              options={VENUE_TYPES}
+              placeholder="Select venue type…"
+            />
             <TextField
               label="Address"
               value={form.address}
               onChange={(value) => updateForm({ address: value })}
               className="sm:col-span-2"
             />
-            <TextField label="City" value={form.city} onChange={(value) => updateForm({ city: value })} />
-            <TextField label="Area" value={form.area} onChange={(value) => updateForm({ area: value })} />
-            <TextField label="Capacity" value={form.capacity} onChange={(value) => updateForm({ capacity: value })} />
+            <SelectField
+              label="City"
+              value={form.city}
+              onChange={(value) => updateForm({ city: value })}
+              options={VENUE_CITIES}
+              placeholder="Select city…"
+            />
+            <TextField label="Area / Barangay" value={form.area} onChange={(value) => updateForm({ area: value })} placeholder="e.g. BGC, Eastwood, Poblacion" />
+            <TextField label="Capacity" value={form.capacity} onChange={(value) => updateForm({ capacity: value })} placeholder="e.g. 200" />
             <TextField
-              label="Price per head"
+              label="Price per head (₱)"
               value={form.pricePerHead}
               onChange={(value) => updateForm({ pricePerHead: value })}
+              placeholder="e.g. 1500"
             />
-            <TextField label="Rating" value={form.rating} onChange={(value) => updateForm({ rating: value })} />
+            <SelectField
+              label="Rating"
+              value={form.rating}
+              onChange={(value) => updateForm({ rating: value })}
+              options={RATING_OPTIONS}
+            />
             <TextField
               label="Review count"
               value={form.reviewCount}
               onChange={(value) => updateForm({ reviewCount: value })}
+              placeholder="e.g. 0"
             />
             <label>
               <span className="mb-1.5 block text-sm font-semibold text-[#1A1817]">
@@ -302,6 +386,7 @@ export default function AdminNewVenuePage() {
               label="Base distance km"
               value={form.baseDistanceKm}
               onChange={(value) => updateForm({ baseDistanceKm: value })}
+              placeholder="e.g. 3"
             />
             <TextField
               label="Tags"
@@ -326,11 +411,9 @@ export default function AdminNewVenuePage() {
                       />
                     </>
                   ) : (
-                    <div
-                      className="flex h-full min-h-[150px] w-full items-center justify-center text-[#2A6558]"
-                      style={{ background: form.imageColor }}
-                    >
-                      <ImageIcon size={30} />
+                    <div className="flex h-full min-h-[150px] w-full flex-col items-center justify-center gap-2 bg-[#EAF2F0] text-[#2A6558]">
+                      <ImageIcon size={30} className="opacity-40" />
+                      <p className="text-xs font-semibold opacity-50">No image yet</p>
                     </div>
                   )}
                 </div>
@@ -376,19 +459,6 @@ export default function AdminNewVenuePage() {
                 </div>
               </div>
             </div>
-            <TextField
-              label="Image URL"
-              value={form.imageUrl}
-              onChange={(value) => updateForm({ imageUrl: value })}
-              placeholder="Optional when uploading a file"
-              className="sm:col-span-2"
-            />
-            <TextField
-              label="Image color"
-              value={form.imageColor}
-              onChange={(value) => updateForm({ imageColor: value })}
-              className="sm:col-span-2"
-            />
             <label className="sm:col-span-2">
               <span className="mb-1.5 block text-sm font-semibold text-[#1A1817]">
                 Description
@@ -443,6 +513,42 @@ function TextField({
         placeholder={placeholder}
         className="h-11 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <label className={className}>
+      <span className="mb-1.5 block text-sm font-semibold text-[#1A1817]">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558]"
+      >
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

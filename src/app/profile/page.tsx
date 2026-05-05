@@ -75,7 +75,7 @@ function readFullName(metadata: Record<string, unknown>) {
 function buildProfileForm(metadata: Record<string, unknown>): ProfileForm {
   return {
     fullName: readFullName(metadata),
-    phone: readString(metadata, "phone"),
+    phone: readString(metadata, "contact_number") || readString(metadata, "phone"),
     company: readString(metadata, "company"),
     bio: readString(metadata, "bio"),
     planningFor: readString(metadata, "planning_for"),
@@ -131,8 +131,8 @@ function ProfileEditor({ user, events, initialForm }: ProfileEditorProps) {
       nextErrors.fullName = "Full name must be at least 2 characters.";
     }
 
-    if (form.phone.trim() && !/^[+\d()\-\s]{7,20}$/.test(form.phone.trim())) {
-      nextErrors.phone = "Enter a valid phone number.";
+    if (form.phone.trim() && !/^\d{7,15}$/.test(form.phone.trim())) {
+      nextErrors.phone = "Contact number must contain digits only (7–15 digits).";
     }
 
     if (form.bio.trim().length > 280) {
@@ -165,6 +165,7 @@ function ProfileEditor({ user, events, initialForm }: ProfileEditorProps) {
         ...metadata,
         full_name: normalized.fullName,
         phone: normalized.phone,
+        contact_number: normalized.phone,
         company: normalized.company,
         bio: normalized.bio,
         planning_for: normalized.planningFor,
@@ -336,7 +337,7 @@ function ProfileEditor({ user, events, initialForm }: ProfileEditorProps) {
 
             <div>
               <label className="mb-1.5 block text-sm font-medium text-[#1A1817]">
-                Phone Number
+                Contact Number
               </label>
               <div className="relative">
                 <Phone
@@ -345,14 +346,18 @@ function ProfileEditor({ user, events, initialForm }: ProfileEditorProps) {
                 />
                 <input
                   type="tel"
+                  inputMode="numeric"
                   value={form.phone}
                   onChange={(event) =>
-                    setForm((prev) => ({ ...prev, phone: event.target.value }))
+                    setForm((prev) => ({
+                      ...prev,
+                      phone: event.target.value.replace(/\D/g, "").slice(0, 15),
+                    }))
                   }
                   className={`w-full rounded-xl border bg-white py-3 pl-10 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] focus:ring-2 focus:ring-[#2A6558]/20 ${
                     errors.phone ? "border-[#C0392B]" : "border-[#E0DDD5]"
                   }`}
-                  placeholder="+63 912 345 6789"
+                  placeholder="09171234567"
                 />
               </div>
               {errors.phone && (

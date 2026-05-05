@@ -22,7 +22,7 @@ import {
   type AdminReservation,
   type AdminReservationRow,
 } from "@/lib/adminData";
-import { Activity, ClipboardList, UserRound } from "lucide-react";
+import { Activity, ClipboardList, Search, UserRound } from "lucide-react";
 
 interface AdminActionLogRow {
   id: string;
@@ -43,6 +43,8 @@ export default function AdminActivityPage() {
   const [reservations, setReservations] = useState<AdminReservation[]>([]);
   const [logs, setLogs] = useState<AdminActionLogRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "confirmed" | "pending_payment" | "cancelled">("all");
 
   useEffect(() => {
     if (authLoading) return;
@@ -106,24 +108,33 @@ export default function AdminActivityPage() {
     };
   }, [authLoading, showError, user]);
 
-  const timeline = useMemo(
-    () =>
-      reservations
-        .map((reservation) => ({
-          id: reservation.id,
-          date: reservation.updatedAt,
-          title:
-            reservation.reservationStatus === "confirmed"
-              ? `${reservation.venueName} confirmed`
-              : reservation.reservationStatus === "cancelled"
-                ? `${reservation.venueName} cancelled`
-                : `${reservation.venueName} pending`,
-          detail: `${reservation.referenceNumber} - ${formatPeso(reservation.totalAmount)} - ${formatAdminDate(reservation.eventDate)}`,
-          reservation,
-        }))
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-    [reservations]
-  );
+  const timeline = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return reservations
+      .map((reservation) => ({
+        id: reservation.id,
+        date: reservation.updatedAt,
+        title:
+          reservation.reservationStatus === "confirmed"
+            ? `${reservation.venueName} confirmed`
+            : reservation.reservationStatus === "cancelled"
+              ? `${reservation.venueName} cancelled`
+              : `${reservation.venueName} pending`,
+        detail: `${reservation.referenceNumber} — ${formatPeso(reservation.totalAmount)} — ${formatAdminDate(reservation.eventDate)}`,
+        reservation,
+      }))
+      .filter((item) => {
+        const matchesStatus =
+          statusFilter === "all" || item.reservation.reservationStatus === statusFilter;
+        const matchesSearch =
+          !q ||
+          item.reservation.venueName.toLowerCase().includes(q) ||
+          item.reservation.referenceNumber.toLowerCase().includes(q) ||
+          item.reservation.contactName.toLowerCase().includes(q);
+        return matchesStatus && matchesSearch;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [reservations, searchQuery, statusFilter]);
 
   if (accessState === "loading" || authLoading) {
     return (
@@ -177,6 +188,35 @@ export default function AdminActivityPage() {
                   </span>
                 }
               />
+
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                  <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by venue, reference or customer…"
+                    className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  {(["all", "confirmed", "pending_payment", "cancelled"] as const).map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setStatusFilter(key)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                        statusFilter === key
+                          ? "border-[#2A6558] bg-[#2A6558] text-white"
+                          : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]"
+                      }`}
+                    >
+                      {key === "all" ? "All" : key === "pending_payment" ? "Pending" : key.charAt(0).toUpperCase() + key.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {timeline.length === 0 ? (
                 <p className="text-sm text-[#7C7671]">No reservation activity yet.</p>
@@ -240,11 +280,10 @@ export default function AdminActivityPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-extrabold text-[#1A1817]">
-                            {log.action.replaceAll("_", " ")}
+                            {log.action.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                           </p>
                           <p className="mt-1 text-xs text-[#7C7671]">
-                            {log.target_table}
-                            {log.target_id ? ` - ${log.target_id}` : ""}
+                            {log.target_table.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                           </p>
                           <p className="mt-1 text-xs text-[#7C7671]">
                             {formatAdminDateTime(log.created_at)}

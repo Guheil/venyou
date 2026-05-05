@@ -7,19 +7,18 @@ interface PayBody {
   proofImageBase64?: string; // data URL: "data:image/...;base64,..."
 }
 
-/** Upload a base64 proof image to Supabase storage and return its public URL. */
 async function uploadProofImage(
-  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createSupabaseServerClient>>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   userId: string,
   reservationId: string,
   dataUrl: string
 ): Promise<string | null> {
   const match = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/);
   if (!match) return null;
+
   const mimeType = match[1];
   const ext = mimeType.split("/")[1] ?? "jpg";
-  const base64 = match[2];
-  const buffer = Buffer.from(base64, "base64");
+  const buffer = Buffer.from(match[2], "base64");
   const path = `${userId}/${reservationId}.${ext}`;
 
   const { error } = await supabase.storage
@@ -34,13 +33,19 @@ async function uploadProofImage(
     return null;
   }
 
-  const { data: signedData, error: signErr } = await supabase.storage
+  const { data, error: signError } = await supabase.storage
     .from("payment-proofs")
-    .createSignedUrl(path, 60 * 60 * 24 * 365); // 1-year signed URL
+    .createSignedUrl(path, 60 * 60 * 24 * 365);
 
-  if (signErr || !signedData?.signedUrl) return null;
-  return signedData.signedUrl;
+  if (signError || !data?.signedUrl) return null;
+  return data.signedUrl;
 }
+
+function makePaymentReference(paymentMethod: "cash" | "gcash") {
+  const prefix = paymentMethod === "gcash" ? "GCASH" : "CASH";
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -51,6 +56,7 @@ export async function POST(
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
+
   if (authError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -60,7 +66,6 @@ export async function POST(
     return NextResponse.json({ error: "Missing reservation ID." }, { status: 400 });
   }
 
-  // Fetch the reservation to determine payment method and validate ownership
   const { data: reservation, error: fetchError } = await supabase
     .from("venue_reservations")
     .select("id, user_id, payment_method, reservation_status, payment_status")
@@ -68,10 +73,7 @@ export async function POST(
     .maybeSingle();
 
   if (fetchError || !reservation) {
-    return NextResponse.json(
-      { error: "Reservation not found." },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Reservation not found." }, { status: 404 });
   }
 
   if (reservation.user_id !== user.id) {
@@ -94,36 +96,19 @@ export async function POST(
   try {
     body = (await req.json()) as PayBody;
   } catch {
-    // body is optional for cash payments
+    body = {};
   }
 
-  // Use the payment method from the request body (chosen in Step 2) if provided,
-  // falling back to whatever was stored when the reservation was created.
   const paymentMethod: "cash" | "gcash" =
     body.paymentMethod === "cash" || body.paymentMethod === "gcash"
       ? body.paymentMethod
       : (reservation.payment_method as "cash" | "gcash");
 
-  // Persist the corrected payment method so the DB record is accurate
-  if (paymentMethod !== reservation.payment_method) {
-    const { error: methodErr } = await supabase
-      .from("venue_reservations")
-      .update({ payment_method: paymentMethod })
-      .eq("id", reservationId)
-      .eq("user_id", user.id);
-
-    if (methodErr) {
-      return NextResponse.json(
-        { error: "Could not update payment method. Please try again." },
-        { status: 500 }
-      );
-    }
-  }
-
-  // --- GCash validation (basic) ---
+  let gcashNumber: string | null = null;
   if (paymentMethod === "gcash") {
-    const gcashNum = body.gcashNumber?.replace(/\D/g, "") ?? "";
-    if (gcashNum.length < 10) {
+    gcashNumber = body.gcashNumber?.replace(/\D/g, "") ?? "";
+
+    if (gcashNumber.length < 10) {
       return NextResponse.json(
         {
           error:
@@ -133,87 +118,50 @@ export async function POST(
       );
     }
 
-    // Save the GCash number on the reservation
-    const { error: updateErr } = await supabase
-      .from("venue_reservations")
-      .update({ gcash_number: gcashNum })
-      .eq("id", reservationId)
-      .eq("user_id", user.id);
-
-    if (updateErr) {
+    if (!body.proofImageBase64) {
       return NextResponse.json(
-        { error: "Could not save GCash number. Please try again." },
-        { status: 500 }
+        { error: "Please upload your GCash payment receipt before submitting." },
+        { status: 400 }
       );
     }
   }
 
-  // --- Upload proof of payment image (if provided) ---
   let proofUrl: string | null = null;
   if (body.proofImageBase64) {
-    proofUrl = await uploadProofImage(supabase, user.id, reservationId, body.proofImageBase64);
-  }
+    proofUrl = await uploadProofImage(
+      supabase,
+      user.id,
+      reservationId,
+      body.proofImageBase64
+    );
 
-  // Generate a mock payment reference
-  const mockRef =
-    paymentMethod === "gcash"
-      ? `GCASH-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`
-      : `CASH-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-
-  // --- Cash: do NOT auto-confirm. Keep status as pending_payment. ---
-  // The reservation is locked in but payment must be settled on the event day.
-  // We store the reference number so the user can show it at the venue.
-  if (paymentMethod === "cash") {
-    const { error: refErr } = await supabase
-      .from("venue_reservations")
-      .update({
-        payment_reference: mockRef,
-        ...(proofUrl ? { payment_proof_url: proofUrl } : {}),
-      })
-      .eq("id", reservationId)
-      .eq("user_id", user.id);
-
-    if (refErr) {
+    if (!proofUrl) {
       return NextResponse.json(
-        { error: "Could not store your cash reference. Please try again." },
+        { error: "Could not upload payment proof. Please try another image." },
         { status: 500 }
       );
     }
-
-    return NextResponse.json(
-      {
-        success: true,
-        paymentReference: mockRef,
-        message:
-          "Your venue slot is reserved. Please bring the full cash amount on your event day to confirm your booking.",
-      },
-      { status: 200 }
-    );
   }
 
-  // --- GCash: confirm the reservation via the DB function ---
-  if (proofUrl) {
-    await supabase
-      .from("venue_reservations")
-      .update({ payment_proof_url: proofUrl })
-      .eq("id", reservationId)
-      .eq("user_id", user.id);
-  }
+  const paymentReference = makePaymentReference(paymentMethod);
 
-  const { data: confirmed, error: confirmError } = await supabase.rpc(
-    "confirm_reservation_payment",
-    {
-      p_reservation_id: reservationId,
-      p_payment_reference: mockRef,
-    }
-  );
+  const { error: submitError } = await supabase
+    .from("venue_reservations")
+    .update({
+      payment_method: paymentMethod,
+      payment_status: "pending",
+      reservation_status: "pending_payment",
+      gcash_number: gcashNumber,
+      payment_reference: paymentReference,
+      payment_proof_url: proofUrl,
+      expires_at: null,
+    })
+    .eq("id", reservationId)
+    .eq("user_id", user.id);
 
-  if (confirmError || confirmed === false) {
+  if (submitError) {
     return NextResponse.json(
-      {
-        error:
-          "Payment confirmation failed. The reservation may have expired. Please try again.",
-      },
+      { error: "Could not submit your payment for review. Please try again." },
       { status: 500 }
     );
   }
@@ -221,11 +169,11 @@ export async function POST(
   return NextResponse.json(
     {
       success: true,
-      paymentReference: mockRef,
+      paymentReference,
       message:
         paymentMethod === "gcash"
-          ? "GCash payment received! Your venue is now reserved."
-          : "Cash payment noted. Your venue is now reserved — please settle the amount on the day of your event.",
+          ? "GCash payment submitted. An admin will review the receipt before confirming your reservation."
+          : "Cash payment reference submitted. An admin will verify the reference before confirming your reservation.",
     },
     { status: 200 }
   );

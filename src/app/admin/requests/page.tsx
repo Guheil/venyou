@@ -11,6 +11,7 @@ import {
   AdminStatusPill,
 } from "@/components/admin/AdminUI";
 import {
+  type PaymentMethod,
   type ReservationStatus,
   formatAdminCompactNumber,
   formatAdminDate,
@@ -24,17 +25,21 @@ import { useToast } from "@/lib/ToastContext";
 import {
   AlertCircle,
   Banknote,
+  CalendarDays,
   CheckCircle2,
   Clock,
   ExternalLink,
   Loader2,
+  MapPin,
+  MessageSquare,
+  Phone,
   RefreshCw,
   Search,
   Smartphone,
+  User,
+  Users,
   XCircle,
   ImageIcon,
-  CreditCard,
-  HandCoins,
 } from "lucide-react";
 
 type RequestFilter = "all" | ReservationStatus;
@@ -55,7 +60,7 @@ export default function AdminRequestsPage() {
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
   const [submittingAction, setSubmittingAction] = useState<string | null>(null);
   const [proofModal, setProofModal] = useState<string | null>(null);
-  const [paymentTypeSelection, setPaymentTypeSelection] = useState<Record<string, "online" | "face_to_face">>({});
+  const [cashReferenceChecks, setCashReferenceChecks] = useState<Record<string, boolean>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -101,28 +106,34 @@ export default function AdminRequestsPage() {
 
   const handleConfirmPayment = async (
     reservationId: string,
-    paymentMethod: string,
-    existingReference: string | null
+    paymentMethod: PaymentMethod,
+    existingReference: string | null,
+    paymentProofUrl: string | null
   ) => {
     const enteredReference = paymentRefs[reservationId]?.trim();
     const referenceToUse = enteredReference || existingReference?.trim() || null;
-    const selectedType = paymentTypeSelection[reservationId];
-
-    if (!selectedType) {
-      showError("Payment type required", "Please select Online Payment or Face-to-Face before confirming.");
-      return;
-    }
 
     if (paymentMethod === "cash" && !referenceToUse) {
       showError("Reference required", "Enter a payment reference before confirming cash payment.");
       return;
     }
 
+    if (paymentMethod === "cash" && !cashReferenceChecks[reservationId]) {
+      showError("Reference check required", "Double-check the cash reference number before confirming.");
+      return;
+    }
+
+    if (paymentMethod === "gcash" && !paymentProofUrl) {
+      showError("Payment proof required", "Review the uploaded GCash receipt before confirming payment.");
+      return;
+    }
+
     setSubmittingAction(`confirm-${reservationId}`);
+    const adminPaymentType = paymentMethod === "gcash" ? "online" : "face_to_face";
 
     await supabase
       .from("venue_reservations")
-      .update({ admin_payment_type: selectedType })
+      .update({ admin_payment_type: adminPaymentType })
       .eq("id", reservationId);
 
     const { data, error } = await supabase.rpc("admin_confirm_reservation_payment", {
@@ -141,7 +152,7 @@ export default function AdminRequestsPage() {
     success("Payment confirmed", `${referenceToUse ?? existingReference ?? "Payment"} is now confirmed.`);
     setPaymentRefs((prev) => ({ ...prev, [reservationId]: "" }));
     setAdminNotes((prev) => ({ ...prev, [reservationId]: "" }));
-    setPaymentTypeSelection((prev) => { const next = { ...prev }; delete next[reservationId]; return next; });
+    setCashReferenceChecks((prev) => { const next = { ...prev }; delete next[reservationId]; return next; });
     setSelectedId(null);
     refreshData();
   };
@@ -358,285 +369,379 @@ export default function AdminRequestsPage() {
       </main>
 
       {/* Reservation detail + action modal */}
-      {selectedReservation && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
-          onClick={() => setSelectedId(null)}
-        >
-          <div
-            className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-t-[28px] bg-white shadow-2xl sm:rounded-[28px]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal header */}
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[#E0DDD5] bg-white px-5 py-4 sm:px-6">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <AdminStatusPill
-                    status={selectedReservation.reservationStatus}
-                    paymentStatus={selectedReservation.paymentStatus}
-                  />
-                  <span className="inline-flex items-center gap-1 rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-1 text-xs font-semibold text-[#7C7671]">
-                    {selectedReservation.paymentMethod === "gcash" ? (
-                      <Smartphone size={11} />
-                    ) : (
-                      <Banknote size={11} />
-                    )}
-                    {selectedReservation.paymentMethod === "gcash" ? "GCash" : "Cash"}
-                  </span>
-                </div>
-                <p className="mt-1 text-lg font-extrabold text-[#1A1817]">
-                  {selectedReservation.referenceNumber}
-                </p>
-                <p className="text-sm text-[#7C7671]">
-                  {formatPeso(selectedReservation.totalAmount)} &middot;{" "}
-                  {formatAdminDateTime(selectedReservation.createdAt)}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedId(null)}
-                className="shrink-0 rounded-xl border border-[#E0DDD5] px-3 py-2 text-xs font-semibold text-[#7C7671] hover:border-[#1A1817]"
+      {selectedReservation &&
+        (() => {
+          const isPending =
+            selectedReservation.reservationStatus === "pending_payment" &&
+            selectedReservation.paymentStatus === "pending";
+          const paymentMethodLabel =
+            selectedReservation.paymentMethod === "gcash" ? "GCash" : "Cash";
+          const paymentTypeLabel =
+            selectedReservation.adminPaymentType === "online"
+              ? "Online"
+              : selectedReservation.adminPaymentType === "face_to_face"
+                ? "Face-to-face"
+                : "Not confirmed";
+          const location = [
+            selectedReservation.venueCity,
+            selectedReservation.venueArea,
+          ].filter(Boolean).join(", ");
+
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-6"
+              onClick={() => setSelectedId(null)}
+            >
+              <div
+                className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl sm:rounded-[28px]"
+                onClick={(e) => e.stopPropagation()}
               >
-                Close
-              </button>
-            </div>
+                <div
+                  className="h-2 w-full"
+                  style={{
+                    background:
+                      selectedReservation.venueImageColor ??
+                      "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
+                  }}
+                />
 
-            <div className="space-y-5 p-5 sm:p-6">
-              {/* Details grid */}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <DetailBlock title="Customer">
-                  <DetailRow label="Name" value={selectedReservation.contactName} />
-                  <DetailRow label="Phone" value={selectedReservation.contactPhone} />
-                  <DetailRow
-                    label="Requests"
-                    value={selectedReservation.specialRequests || "None"}
-                  />
-                </DetailBlock>
-                <DetailBlock title="Event">
-                  <DetailRow label="Event" value={selectedReservation.eventName} />
-                  <DetailRow label="Occasion" value={selectedReservation.eventOccasion} />
-                  <DetailRow
-                    label="Date"
-                    value={`${formatAdminDate(selectedReservation.eventDate)} at ${formatAdminTime(selectedReservation.startTime)}`}
-                  />
-                  <DetailRow
-                    label="Duration"
-                    value={`${selectedReservation.durationHours} hours`}
-                  />
-                  <DetailRow
-                    label="Guests"
-                    value={formatAdminCompactNumber(selectedReservation.guestCount)}
-                  />
-                </DetailBlock>
-                <DetailBlock title="Venue & payment">
-                  <DetailRow label="Venue" value={selectedReservation.venueName} />
-                  <DetailRow label="Type" value={selectedReservation.venueType} />
-                  <DetailRow
-                    label="Location"
-                    value={`${selectedReservation.venueCity}${selectedReservation.venueArea ? `, ${selectedReservation.venueArea}` : ""}`}
-                  />
-                  <DetailRow
-                    label="GCash no."
-                    value={selectedReservation.gcashNumber ?? "Not provided"}
-                  />
-                  <DetailRow
-                    label="Reference"
-                    value={selectedReservation.paymentReference ?? "Not set"}
-                  />
-                  <DetailRow
-                    label="Confirmed"
-                    value={
-                      selectedReservation.paymentConfirmedAt
-                        ? formatAdminDateTime(selectedReservation.paymentConfirmedAt)
-                        : "Not confirmed"
-                    }
-                  />
-                  <DetailRow
-                    label="Admin note"
-                    value={selectedReservation.adminNote || "None"}
-                  />
-                  <DetailRow
-                    label="Payment type"
-                    value={
-                      selectedReservation.adminPaymentType === "online"
-                        ? "Online (GCash / Bank)"
-                        : selectedReservation.adminPaymentType === "face_to_face"
-                          ? "Face-to-Face (Cash)"
-                          : "Not yet confirmed"
-                    }
-                  />
-                </DetailBlock>
-              </div>
-
-              {/* Payment proof */}
-              {selectedReservation.paymentProofUrl && (
-                <div className="rounded-xl border border-[#C8E0DA] bg-[#EAF2F0] p-3">
-                  <p className="mb-2 text-xs font-semibold text-[#2A6558]">
-                    Payment Proof Submitted
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setProofModal(selectedReservation.paymentProofUrl!)}
-                    className="flex items-center gap-2 rounded-lg border border-[#2A6558] bg-white px-3 py-2 text-xs font-semibold text-[#2A6558] transition hover:bg-[#EAF2F0]"
-                  >
-                    <ImageIcon size={13} />
-                    View Receipt / Screenshot
-                    <ExternalLink size={12} />
-                  </button>
-                </div>
-              )}
-
-              {/* Actions — pending */}
-              {selectedReservation.reservationStatus === "pending_payment" &&
-                selectedReservation.paymentStatus === "pending" && (
-                  <div className="space-y-3 rounded-[20px] border border-[#E0DDD5] bg-[#FCFBF8] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-[#2A6558]">
-                      Confirm Payment
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPaymentTypeSelection((prev) => ({
-                            ...prev,
-                            [selectedReservation.id]: "online",
-                          }))
-                        }
-                        className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${
-                          paymentTypeSelection[selectedReservation.id] === "online"
-                            ? "border-[#2A6558] bg-[#EAF2F0] text-[#2A6558]"
-                            : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]"
-                        }`}
-                      >
-                        <CreditCard size={13} />
-                        Online Payment
-                        <span className="text-[10px] opacity-70">(GCash / Bank)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPaymentTypeSelection((prev) => ({
-                            ...prev,
-                            [selectedReservation.id]: "face_to_face",
-                          }))
-                        }
-                        className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${
-                          paymentTypeSelection[selectedReservation.id] === "face_to_face"
-                            ? "border-[#2A6558] bg-[#EAF2F0] text-[#2A6558]"
-                            : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]"
-                        }`}
-                      >
-                        <HandCoins size={13} />
-                        Face-to-Face
-                        <span className="text-[10px] opacity-70">(Cash)</span>
-                      </button>
-                    </div>
-                    {!paymentTypeSelection[selectedReservation.id] && (
-                      <p className="text-[11px] text-[#C0392B]">
-                        Select a payment type to proceed.
+                <header className="border-b border-[#E0DDD5] bg-white px-5 py-5 sm:px-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <AdminStatusPill
+                          status={selectedReservation.reservationStatus}
+                          paymentStatus={selectedReservation.paymentStatus}
+                        />
+                        <span className="inline-flex items-center gap-1 rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-1 text-xs font-semibold text-[#7C7671]">
+                          {selectedReservation.paymentMethod === "gcash" ? (
+                            <Smartphone size={11} />
+                          ) : (
+                            <Banknote size={11} />
+                          )}
+                          {paymentMethodLabel}
+                        </span>
+                      </div>
+                      <h2 className="break-words text-2xl font-extrabold tracking-tight text-[#1A1817]">
+                        {selectedReservation.referenceNumber}
+                      </h2>
+                      <p className="mt-1 text-sm text-[#7C7671]">
+                        {selectedReservation.eventName} at {selectedReservation.venueName}
                       </p>
-                    )}
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <input
-                        value={
-                          paymentRefs[selectedReservation.id] ??
-                          selectedReservation.paymentReference ??
-                          ""
-                        }
-                        onChange={(e) =>
-                          setPaymentRefs((prev) => ({
-                            ...prev,
-                            [selectedReservation.id]: e.target.value,
-                          }))
-                        }
-                        placeholder={
-                          selectedReservation.paymentMethod === "cash"
-                            ? "Payment reference (required)"
-                            : "Payment reference"
-                        }
-                        className="h-10 rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none focus:border-[#2A6558]"
-                      />
-                      <input
-                        value={adminNotes[selectedReservation.id] ?? ""}
-                        onChange={(e) =>
-                          setAdminNotes((prev) => ({
-                            ...prev,
-                            [selectedReservation.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Internal note"
-                        className="h-10 rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none focus:border-[#2A6558]"
-                      />
                     </div>
-                    <div className="flex gap-2">
+
+                    <div className="flex shrink-0 flex-col gap-3 sm:flex-row lg:items-start">
+                      <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[#E0DDD5] bg-[#FCFBF8] p-3 text-sm">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7C7671]">
+                            Amount
+                          </p>
+                          <p className="mt-1 font-extrabold text-[#1A1817]">
+                            {formatPeso(selectedReservation.totalAmount)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7C7671]">
+                            Submitted
+                          </p>
+                          <p className="mt-1 font-semibold text-[#1A1817]">
+                            {formatAdminDateTime(selectedReservation.createdAt)}
+                          </p>
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        onClick={() =>
-                          void handleConfirmPayment(
-                            selectedReservation.id,
-                            selectedReservation.paymentMethod,
-                            selectedReservation.paymentReference
-                          )
-                        }
-                        disabled={submittingAction === `confirm-${selectedReservation.id}`}
-                        className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] px-4 text-sm font-semibold text-white transition hover:bg-[#215249] disabled:opacity-60"
+                        onClick={() => setSelectedId(null)}
+                        className="inline-flex h-10 items-center justify-center rounded-xl border border-[#E0DDD5] bg-white px-4 text-sm font-semibold text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817]"
                       >
-                        {submittingAction === `confirm-${selectedReservation.id}` ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <CheckCircle2 size={15} />
-                        )}
-                        Confirm payment
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleCancelReservation(
-                            selectedReservation.id,
-                            selectedReservation.referenceNumber
-                          )
-                        }
-                        disabled={submittingAction === `cancel-${selectedReservation.id}`}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
-                      >
-                        {submittingAction === `cancel-${selectedReservation.id}` ? (
-                          <Loader2 size={15} className="animate-spin" />
-                        ) : (
-                          <XCircle size={15} />
-                        )}
-                        Cancel
+                        Close
                       </button>
                     </div>
                   </div>
-                )}
+                </header>
 
-              {/* Cancel-only for confirmed */}
-              {selectedReservation.reservationStatus === "confirmed" && (
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleCancelReservation(
-                        selectedReservation.id,
-                        selectedReservation.referenceNumber
-                      )
-                    }
-                    disabled={submittingAction === `cancel-${selectedReservation.id}`}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
-                  >
-                    {submittingAction === `cancel-${selectedReservation.id}` ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <XCircle size={15} />
-                    )}
-                    Cancel reservation
-                  </button>
+                <div className="overflow-y-auto bg-[#FCFBF8] p-5 sm:p-6">
+                  <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
+                    <div className="space-y-5">
+                      <InfoSection
+                        title="Requestor"
+                        icon={<User size={16} />}
+                      >
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <InfoRow label="Name" value={selectedReservation.contactName} />
+                          <InfoRow label="Phone" value={selectedReservation.contactPhone} />
+                        </div>
+                        <InfoRow
+                          label="Special requests"
+                          value={selectedReservation.specialRequests || "None"}
+                          icon={<MessageSquare size={14} />}
+                        />
+                      </InfoSection>
+
+                      <InfoSection
+                        title="Event schedule"
+                        icon={<CalendarDays size={16} />}
+                      >
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <InfoRow label="Event" value={selectedReservation.eventName} />
+                          <InfoRow label="Occasion" value={selectedReservation.eventOccasion} />
+                          <InfoRow
+                            label="Date and time"
+                            value={`${formatAdminDate(selectedReservation.eventDate)} at ${formatAdminTime(selectedReservation.startTime)}`}
+                            icon={<Clock size={14} />}
+                          />
+                          <InfoRow
+                            label="Duration"
+                            value={`${selectedReservation.durationHours} hours`}
+                          />
+                          <InfoRow
+                            label="Guests"
+                            value={formatAdminCompactNumber(selectedReservation.guestCount)}
+                            icon={<Users size={14} />}
+                          />
+                        </div>
+                      </InfoSection>
+
+                      <InfoSection title="Venue" icon={<MapPin size={16} />}>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <InfoRow label="Venue" value={selectedReservation.venueName} />
+                          <InfoRow label="Type" value={selectedReservation.venueType} />
+                          <InfoRow
+                            label="Location"
+                            value={location || selectedReservation.venueAddress || "Not provided"}
+                            icon={<MapPin size={14} />}
+                          />
+                          <InfoRow
+                            label="Full address"
+                            value={selectedReservation.venueAddress || "Not provided"}
+                          />
+                        </div>
+                      </InfoSection>
+                    </div>
+
+                    <aside className="space-y-5">
+                      <InfoSection
+                        title="Payment review"
+                        icon={
+                          selectedReservation.paymentMethod === "gcash" ? (
+                            <Smartphone size={16} />
+                          ) : (
+                            <Banknote size={16} />
+                          )
+                        }
+                      >
+                        <div className="space-y-3">
+                          <InfoRow label="Method" value={paymentMethodLabel} />
+                          <InfoRow
+                            label="Payment reference"
+                            value={selectedReservation.paymentReference ?? "Not set"}
+                            mono
+                          />
+                          {selectedReservation.paymentMethod === "gcash" && (
+                            <InfoRow
+                              label="GCash number"
+                              value={selectedReservation.gcashNumber ?? "Not provided"}
+                              icon={<Phone size={14} />}
+                            />
+                          )}
+                          <InfoRow
+                            label="Confirmed"
+                            value={
+                              selectedReservation.paymentConfirmedAt
+                                ? formatAdminDateTime(selectedReservation.paymentConfirmedAt)
+                                : "Not confirmed"
+                            }
+                          />
+                          <InfoRow label="Payment type" value={paymentTypeLabel} />
+                          <InfoRow
+                            label="Admin note"
+                            value={selectedReservation.adminNote || "None"}
+                          />
+                        </div>
+
+                        {selectedReservation.paymentMethod === "gcash" && (
+                          <div
+                            className={`mt-4 rounded-2xl border p-4 ${
+                              selectedReservation.paymentProofUrl
+                                ? "border-[#C8E0DA] bg-[#EAF2F0]"
+                                : "border-[#F2C5BE] bg-[#FDECEA]"
+                            }`}
+                          >
+                            <p
+                              className={`text-xs font-bold ${
+                                selectedReservation.paymentProofUrl
+                                  ? "text-[#2A6558]"
+                                  : "text-[#C0392B]"
+                              }`}
+                            >
+                              {selectedReservation.paymentProofUrl
+                                ? "Payment proof uploaded"
+                                : "Payment proof missing"}
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed text-[#6B6661]">
+                              {selectedReservation.paymentProofUrl
+                                ? "Open the receipt screenshot before approving this request."
+                                : "Ask the requestor to upload a receipt before confirming."}
+                            </p>
+                            {selectedReservation.paymentProofUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setProofModal(selectedReservation.paymentProofUrl)}
+                                className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#2A6558] bg-white px-3 py-2 text-xs font-semibold text-[#2A6558] transition hover:bg-[#F8FBFA]"
+                              >
+                                <ImageIcon size={13} />
+                                View proof
+                                <ExternalLink size={12} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </InfoSection>
+
+                      {isPending && (
+                        <InfoSection title="Admin action" icon={<CheckCircle2 size={16} />}>
+                          {selectedReservation.paymentMethod === "cash" ? (
+                            <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(cashReferenceChecks[selectedReservation.id])}
+                                onChange={(e) =>
+                                  setCashReferenceChecks((prev) => ({
+                                    ...prev,
+                                    [selectedReservation.id]: e.target.checked,
+                                  }))
+                                }
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 text-[#2A6558]"
+                              />
+                              <span>
+                                I checked the cash payment against booking reference{" "}
+                                <strong>{selectedReservation.referenceNumber}</strong> and payment reference{" "}
+                                <strong>{selectedReservation.paymentReference ?? "not set"}</strong>.
+                              </span>
+                            </label>
+                          ) : (
+                            <div
+                              className={`rounded-2xl border p-3 text-xs leading-relaxed ${
+                                selectedReservation.paymentProofUrl
+                                  ? "border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
+                                  : "border-[#F2C5BE] bg-[#FDECEA] text-[#C0392B]"
+                              }`}
+                            >
+                              {selectedReservation.paymentProofUrl
+                                ? "Receipt is available. Review it, then confirm payment."
+                                : "No GCash proof was uploaded yet."}
+                            </div>
+                          )}
+
+                          <div className="mt-4 grid gap-3">
+                            <label>
+                              <span className="mb-1.5 block text-xs font-semibold text-[#7C7671]">
+                                Payment reference
+                              </span>
+                              <input
+                                value={
+                                  paymentRefs[selectedReservation.id] ??
+                                  selectedReservation.paymentReference ??
+                                  ""
+                                }
+                                onChange={(e) =>
+                                  setPaymentRefs((prev) => ({
+                                    ...prev,
+                                    [selectedReservation.id]: e.target.value,
+                                  }))
+                                }
+                                placeholder="Payment reference"
+                                className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
+                              />
+                            </label>
+                            <label>
+                              <span className="mb-1.5 block text-xs font-semibold text-[#7C7671]">
+                                Internal note
+                              </span>
+                              <input
+                                value={adminNotes[selectedReservation.id] ?? ""}
+                                onChange={(e) =>
+                                  setAdminNotes((prev) => ({
+                                    ...prev,
+                                    [selectedReservation.id]: e.target.value,
+                                  }))
+                                }
+                                placeholder="Optional note"
+                                className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
+                              />
+                            </label>
+                          </div>
+
+                          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleConfirmPayment(
+                                  selectedReservation.id,
+                                  selectedReservation.paymentMethod,
+                                  selectedReservation.paymentReference,
+                                  selectedReservation.paymentProofUrl
+                                )
+                              }
+                              disabled={submittingAction === `confirm-${selectedReservation.id}`}
+                              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#2A6558] px-4 text-sm font-semibold text-white transition hover:bg-[#215249] disabled:opacity-60"
+                            >
+                              {submittingAction === `confirm-${selectedReservation.id}` ? (
+                                <Loader2 size={15} className="animate-spin" />
+                              ) : (
+                                <CheckCircle2 size={15} />
+                              )}
+                              Confirm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleCancelReservation(
+                                  selectedReservation.id,
+                                  selectedReservation.referenceNumber
+                                )
+                              }
+                              disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
+                            >
+                              {submittingAction === `cancel-${selectedReservation.id}` ? (
+                                <Loader2 size={15} className="animate-spin" />
+                              ) : (
+                                <XCircle size={15} />
+                              )}
+                              Cancel
+                            </button>
+                          </div>
+                        </InfoSection>
+                      )}
+
+                      {selectedReservation.reservationStatus === "confirmed" && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleCancelReservation(
+                              selectedReservation.id,
+                              selectedReservation.referenceNumber
+                            )
+                          }
+                          disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
+                        >
+                          {submittingAction === `cancel-${selectedReservation.id}` ? (
+                            <Loader2 size={15} className="animate-spin" />
+                          ) : (
+                            <XCircle size={15} />
+                          )}
+                          Cancel reservation
+                        </button>
+                      )}
+                    </aside>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
 
       {/* Proof image modal */}
       {proofModal && (
@@ -671,36 +776,54 @@ export default function AdminRequestsPage() {
   );
 }
 
-function DetailBlock({ title, children }: { title: string; children: React.ReactNode }) {
+function InfoSection({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8] p-4">
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">
-        {title}
-      </p>
-      <div className="space-y-2">{children}</div>
-    </div>
+    <section className="rounded-[22px] border border-[#E0DDD5] bg-white p-4 shadow-sm sm:p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#EAF2F0] text-[#2A6558]">
+          {icon}
+        </span>
+        <h3 className="text-[12px] font-extrabold uppercase tracking-[0.18em] text-[#2A6558]">
+          {title}
+        </h3>
+      </div>
+      {children}
+    </section>
   );
 }
 
-function DetailRow({
+function InfoRow({
   label,
   value,
+  icon,
   mono,
 }: {
   label: string;
   value: string;
+  icon?: React.ReactNode;
   mono?: boolean;
 }) {
   return (
-    <div className="grid gap-1 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
-      <span className="text-xs font-semibold text-[#7C7671]">{label}</span>
-      <span
-        className={`min-w-0 break-words font-medium text-[#1A1817] ${
+    <div className="min-w-0 rounded-2xl border border-[#F0EEEA] bg-[#FCFBF8] px-3 py-2.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#7C7671]">
+        {icon && <span className="text-[#2A6558]">{icon}</span>}
+        {label}
+      </div>
+      <p
+        className={`min-w-0 whitespace-pre-wrap break-words text-sm font-semibold leading-relaxed text-[#1A1817] ${
           mono ? "font-mono text-xs" : ""
         }`}
       >
         {value}
-      </span>
+      </p>
     </div>
   );
 }

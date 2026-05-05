@@ -10,211 +10,192 @@ import {
   AdminSectionHeader,
 } from "@/components/admin/AdminUI";
 import {
-  type AdminEventStatus,
+  type AdminReservation,
   formatAdminCompactNumber,
   formatAdminDate,
   formatAdminDateTime,
-  formatAdminEventBudget,
   formatAdminTime,
 } from "@/lib/adminData";
-import { supabase } from "@/lib/supabase/client";
+import { formatPeso } from "@/lib/budget";
 import { useAdminData } from "@/lib/useAdminData";
-import { useToast } from "@/lib/ToastContext";
 import {
+  Banknote,
   CalendarCheck,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Clock,
-  Loader2,
+  List,
+  MapPin,
   RefreshCw,
-  Save,
   Search,
-  Sparkles,
-  Trash2,
+  Smartphone,
   Users,
-  X,
 } from "lucide-react";
 
-const eventStatuses: AdminEventStatus[] = ["Draft", "In Review", "Confirmed"];
+type ViewMode = "list" | "calendar";
+type EventFilter = "all" | "upcoming" | "past";
 
-const OCCASIONS = [
-  "Wedding Reception",
-  "Corporate Conference",
-  "Birthday Celebration",
-  "Product Launch",
-  "Team Building",
-  "Gala Dinner",
-  "Graduation Party",
-  "Networking Mixer",
-  "Baptism / Christening",
-  "Debut",
-  "Seminar / Workshop",
-  "Other",
+const filters: { key: EventFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "upcoming", label: "Upcoming" },
+  { key: "past", label: "Past" },
 ];
 
-const DURATION_OPTIONS = [
-  "1", "2", "3", "4", "5", "6", "7", "8", "10", "12",
-];
-
-interface EventEditDraft {
-  status: AdminEventStatus;
-  occasion: string;
-  eventDate: string;
-  startTime: string;
-  durationHours: string;
-  pax: string;
+function dateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-const eventFilters: { key: "all" | AdminEventStatus; label: string }[] = [
-  { key: "all", label: "All" },
-  ...eventStatuses.map((status) => ({ key: status, label: status })),
-];
+function monthLabel(date: Date) {
+  return date.toLocaleDateString("en-PH", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function EventCard({ event }: { event: AdminReservation }) {
+  return (
+    <article className="overflow-hidden rounded-[24px] border border-[#E0DDD5] bg-white shadow-sm">
+      <div
+        className="h-1.5 w-full"
+        style={{
+          background:
+            event.venueImageColor ??
+            "linear-gradient(135deg, #BDD7D2 0%, #D6E8E4 100%)",
+        }}
+      />
+      <div className="p-5">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full border border-[#C8E0DA] bg-[#EAF2F0] px-2.5 py-1 text-[11px] font-semibold text-[#2A6558]">
+            <CalendarCheck size={12} />
+            Confirmed
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-1 text-[11px] font-semibold text-[#7C7671]">
+            {event.paymentMethod === "gcash" ? <Smartphone size={11} /> : <Banknote size={11} />}
+            {event.paymentMethod === "gcash" ? "GCash" : "Cash"}
+          </span>
+        </div>
+
+        <h2 className="text-lg font-extrabold leading-tight text-[#1A1817]">
+          {event.eventName}
+        </h2>
+        <p className="mt-1 text-sm text-[#7C7671]">
+          {event.contactName} - {event.eventOccasion}
+        </p>
+
+        <div className="mt-4 grid gap-2 text-xs text-[#44504C] sm:grid-cols-2">
+          <Detail icon={<CalendarDays size={13} />} text={formatAdminDate(event.eventDate)} />
+          <Detail
+            icon={<Clock size={13} />}
+            text={`${formatAdminTime(event.startTime)} - ${event.durationHours}h`}
+          />
+          <Detail icon={<Users size={13} />} text={`${formatAdminCompactNumber(event.guestCount)} guests`} />
+          <Detail icon={<MapPin size={13} />} text={event.venueName} />
+        </div>
+
+        <div className="mt-4 grid gap-2 border-t border-[#F0EEEA] pt-4 text-xs text-[#7C7671] sm:grid-cols-2">
+          <div>
+            <span className="block font-semibold text-[#1A1817]">Venue</span>
+            {event.venueAddress || `${event.venueCity}${event.venueArea ? `, ${event.venueArea}` : ""}`}
+          </div>
+          <div>
+            <span className="block font-semibold text-[#1A1817]">Payment</span>
+            {formatPeso(event.totalAmount)} - {event.paymentReference ?? event.referenceNumber}
+          </div>
+        </div>
+
+        <p className="mt-4 text-[11px] text-[#7C7671]">
+          Confirmed {event.paymentConfirmedAt ? formatAdminDateTime(event.paymentConfirmedAt) : "by admin"}.
+        </p>
+      </div>
+    </article>
+  );
+}
+
+function Detail({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0 text-[#2A6558]">{icon}</span>
+      <span className="truncate">{text}</span>
+    </div>
+  );
+}
 
 export default function AdminEventsPage() {
-  const { accessState, loadingData, refreshData, events } = useAdminData();
-  const { success, error: showError } = useToast();
-  const [filter, setFilter] = useState<"all" | AdminEventStatus>("all");
+  const { accessState, loadingData, refreshData, reservations, summary } = useAdminData();
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [filter, setFilter] = useState<EventFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [savingEventId, setSavingEventId] = useState<string | null>(null);
-  const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [eventDrafts, setEventDrafts] = useState<Record<string, EventEditDraft>>({});
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
 
-  const selectedEvent = useMemo(
-    () => events.find((e) => e.id === selectedEventId) ?? null,
-    [events, selectedEventId]
+  const today = dateKey(new Date());
+
+  const confirmedEvents = useMemo(
+    () =>
+      reservations
+        .filter((reservation) => reservation.reservationStatus === "confirmed")
+        .sort((left, right) => left.eventDate.localeCompare(right.eventDate)),
+    [reservations]
   );
 
-  const getEventDraft = (eventId: string): EventEditDraft => {
-    if (eventDrafts[eventId]) return eventDrafts[eventId];
-    const ev = events.find((e) => e.id === eventId);
-    if (!ev) return { status: "Draft", occasion: "", eventDate: "", startTime: "", durationHours: "4", pax: "" };
-    return {
-      status: ev.status,
-      occasion: ev.occasion,
-      eventDate: ev.eventDate ?? "",
-      startTime: ev.startTime ?? "",
-      durationHours: String(ev.durationHours ?? 4),
-      pax: String(ev.pax),
-    };
-  };
+  const searchedEvents = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
 
-  const patchDraft = (eventId: string, patch: Partial<EventEditDraft>) => {
-    setEventDrafts((prev) => ({
-      ...prev,
-      [eventId]: { ...getEventDraft(eventId), ...patch },
-    }));
-  };
+    return confirmedEvents.filter((event) => {
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "upcoming" && event.eventDate >= today) ||
+        (filter === "past" && event.eventDate < today);
 
-  const filtered = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    return events.filter((event) => {
-      const matchesFilter = filter === "all" || event.status === filter;
       const matchesSearch =
         !q ||
         event.eventName.toLowerCase().includes(q) ||
-        (event.creatorFullName ?? "").toLowerCase().includes(q) ||
-        event.occasion.toLowerCase().includes(q) ||
-        event.city.toLowerCase().includes(q);
+        event.contactName.toLowerCase().includes(q) ||
+        event.venueName.toLowerCase().includes(q) ||
+        event.referenceNumber.toLowerCase().includes(q) ||
+        event.eventOccasion.toLowerCase().includes(q);
+
       return matchesFilter && matchesSearch;
     });
-  }, [events, filter, searchQuery]);
+  }, [confirmedEvents, filter, searchQuery, today]);
 
-  const counts = {
-    all: events.length,
-    Draft: events.filter((event) => event.status === "Draft").length,
-    "In Review": events.filter((event) => event.status === "In Review").length,
-    Confirmed: events.filter((event) => event.status === "Confirmed").length,
-  };
+  const eventsByDate = useMemo(
+    () =>
+      confirmedEvents.reduce<Record<string, AdminReservation[]>>((map, event) => {
+        map[event.eventDate] = [...(map[event.eventDate] ?? []), event];
+        return map;
+      }, {}),
+    [confirmedEvents]
+  );
 
-  const totalGuests = events.reduce((sum, event) => sum + event.pax, 0);
-  const withRecommendations = events.filter(
-    (event) => event.venueCount > 0 || event.topVenueName
-  ).length;
+  const calendarCells = useMemo(() => {
+    const firstDay = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const start = new Date(firstDay);
+    start.setDate(firstDay.getDate() - firstDay.getDay());
 
-  const handleUpdateEventStatus = async (
-    eventId: string,
-    eventName: string,
-    nextStatus: AdminEventStatus
-  ) => {
-    const currentEvent = events.find((event) => event.id === eventId);
-    if (currentEvent?.status === nextStatus) return;
+    return Array.from({ length: 42 }, (_, index) => {
+      const day = new Date(start);
+      day.setDate(start.getDate() + index);
+      return day;
+    });
+  }, [calendarMonth]);
 
-    setSavingEventId(eventId);
-
-    const { error } = await supabase
-      .from("events")
-      .update({ status: nextStatus })
-      .eq("id", eventId);
-
-    setSavingEventId(null);
-
-    if (error) {
-      showError("Could not update event", "Please check your admin access.");
-      return;
-    }
-
-    success("Event updated", `${eventName} is now ${nextStatus}.`);
-    refreshData();
-  };
-
-  const handleSaveEventDetails = async (eventId: string, eventName: string) => {
-    const draft = getEventDraft(eventId);
-    const pax = Number(draft.pax);
-    const duration = Number(draft.durationHours);
-
-    if (!Number.isFinite(pax) || pax < 1) {
-      showError("Invalid guest count", "Guest count must be at least 1.");
-      return;
-    }
-
-    setSavingEventId(eventId);
-
-    const { error } = await supabase
-      .from("events")
-      .update({
-        status: draft.status,
-        occasion: draft.occasion || undefined,
-        event_date: draft.eventDate || undefined,
-        start_time: draft.startTime || undefined,
-        duration_hours: Number.isFinite(duration) && duration > 0 ? duration : undefined,
-        pax: Math.round(pax),
-      })
-      .eq("id", eventId);
-
-    setSavingEventId(null);
-
-    if (error) {
-      showError("Could not save changes", "Please check your admin access.");
-      return;
-    }
-
-    setEventDrafts((prev) => { const next = { ...prev }; delete next[eventId]; return next; });
-    success("Event saved", `Changes to "${eventName}" were saved.`);
-    refreshData();
-  };
-
-  const handleDeleteEvent = async (eventId: string, eventName: string) => {
-    if (!window.confirm(`Delete "${eventName}"? This cannot be undone.`)) return;
-
-    setDeletingEventId(eventId);
-
-    const { error } = await supabase.from("events").delete().eq("id", eventId);
-
-    setDeletingEventId(null);
-
-    if (error) {
-      showError("Could not delete event", "Please check your admin access.");
-      return;
-    }
-
-    success("Event deleted", `${eventName} was removed from the event list.`);
-    refreshData();
-  };
+  const upcomingCount = confirmedEvents.filter((event) => event.eventDate >= today).length;
+  const pastCount = confirmedEvents.length - upcomingCount;
+  const thisMonthKey = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, "0")}`;
+  const monthCount = confirmedEvents.filter((event) => event.eventDate.startsWith(thisMonthKey)).length;
+  const totalGuests = confirmedEvents.reduce((sum, event) => sum + event.guestCount, 0);
 
   if (accessState === "loading") {
     return (
       <AdminShell>
-        <AdminLoadingState label="Loading event briefs" />
+        <AdminLoadingState label="Loading confirmed events" />
       </AdminShell>
     );
   }
@@ -235,14 +216,13 @@ export default function AdminEventsPage() {
             <div className="max-w-3xl">
               <span className="inline-flex items-center gap-2 rounded-full border border-[#C8E0DA] bg-[#EAF2F0] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">
                 <CalendarDays size={13} />
-                Event Briefs
+                Event Schedule
               </span>
               <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#1A1817] sm:text-4xl">
-                All customer event briefs with every submitted planning detail.
+                Confirmed reservations become the event list.
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#6B6661] sm:text-base">
-                Review customer demand, schedule details, budget ranges, location
-                requirements, amenities, and current shortlist status.
+                Once payment is confirmed from Requests, the reservation appears here as an event with its venue, customer, date, and payment reference.
               </p>
             </div>
             <button
@@ -260,322 +240,221 @@ export default function AdminEventsPage() {
         <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <AdminMetricCard
             icon={<CalendarCheck size={18} />}
-            label="Event Briefs"
-            value={String(events.length)}
-            detail="All saved events across users"
+            label="Confirmed Events"
+            value={String(confirmedEvents.length)}
+            detail="Approved reservation requests"
             tone="accent"
           />
           <AdminMetricCard
-            icon={<Users size={18} />}
-            label="Total Guests"
-            value={formatAdminCompactNumber(totalGuests)}
-            detail="Combined expected attendance"
-          />
-          <AdminMetricCard
-            icon={<Sparkles size={18} />}
-            label="With Venue Matches"
-            value={String(withRecommendations)}
-            detail="Events with shortlist or top venue data"
-          />
-          <AdminMetricCard
             icon={<Clock size={18} />}
-            label="In Review"
-            value={String(counts["In Review"])}
-            detail="Events currently moving through planning"
+            label="Upcoming"
+            value={String(upcomingCount)}
+            detail="Confirmed events from today onward"
+          />
+          <AdminMetricCard
+            icon={<CalendarDays size={18} />}
+            label="This Month"
+            value={String(monthCount)}
+            detail={monthLabel(calendarMonth)}
+          />
+          <AdminMetricCard
+            icon={<Users size={18} />}
+            label="Guests"
+            value={formatAdminCompactNumber(totalGuests)}
+            detail={`${summary.confirmed_reservations} confirmed reservations`}
             tone="dark"
           />
         </section>
 
         <AdminPanel className="mt-6">
           <AdminSectionHeader
-            eyebrow="Filters"
-            title="Event status"
-            description="Use status filters while retaining full event detail below."
+            eyebrow="View"
+            title="List and calendar"
+            description="Use one confirmed event source, then switch the presentation for operations or scheduling."
             action={
-              <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-3 py-1 text-xs font-semibold text-[#7C7671]">
-                {filtered.length} visible
-              </span>
+              <div className="inline-flex rounded-full border border-[#E0DDD5] bg-[#FCFBF8] p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    viewMode === "list" ? "bg-[#2A6558] text-white" : "text-[#7C7671]"
+                  }`}
+                >
+                  <List size={13} />
+                  List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("calendar")}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    viewMode === "calendar" ? "bg-[#2A6558] text-white" : "text-[#7C7671]"
+                  }`}
+                >
+                  <CalendarDays size={13} />
+                  Calendar
+                </button>
+              </div>
             }
           />
-          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative flex-1">
               <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7C7671]" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by event name, organizer, occasion or city…"
+                placeholder="Search by event, requestor, venue, occasion, or reference..."
                 className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-[#FCFBF8] pl-9 pr-4 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558]"
               />
             </div>
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {eventFilters.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setFilter(item.key)}
-                className={`shrink-0 rounded-full border px-4 py-1.5 text-xs font-semibold transition ${
-                  filter === item.key
-                    ? "border-[#2A6558] bg-[#2A6558] text-white"
-                    : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]"
-                }`}
-              >
-                {item.label}
-                <span className="ml-1 opacity-75">{counts[item.key]}</span>
-              </button>
-            ))}
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {filters.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setFilter(item.key)}
+                  className={`shrink-0 rounded-full border px-4 py-1.5 text-xs font-semibold transition ${
+                    filter === item.key
+                      ? "border-[#2A6558] bg-[#2A6558] text-white"
+                      : "border-[#E0DDD5] bg-white text-[#7C7671] hover:border-[#2A6558]"
+                  }`}
+                >
+                  {item.label}
+                  <span className="ml-1 opacity-75">
+                    {item.key === "all" ? confirmedEvents.length : item.key === "upcoming" ? upcomingCount : pastCount}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         </AdminPanel>
 
-        {/* Compact event cards */}
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((event) => (
-            <button
-              key={event.id}
-              type="button"
-              onClick={() => setSelectedEventId(event.id)}
-              className="group rounded-[24px] border border-[#E0DDD5] bg-white p-5 text-left shadow-sm transition hover:border-[#2A6558] hover:shadow-md"
-            >
-              <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                <span
-                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                    event.status === "Confirmed"
-                      ? "border border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
-                      : event.status === "In Review"
-                      ? "border border-[#FDE8BB] bg-[#FEF6E4] text-[#92600A]"
-                      : "border border-[#E0DDD5] bg-[#FCFBF8] text-[#7C7671]"
-                  }`}
+        {viewMode === "list" ? (
+          <section className="mt-6 grid gap-4 lg:grid-cols-2">
+            {searchedEvents.length === 0 ? (
+              <div className="col-span-full rounded-[24px] border border-dashed border-[#DAD6CE] bg-[#FCFBF8] p-10 text-center">
+                <CalendarDays size={32} className="mx-auto mb-3 text-[#C8C2BB]" />
+                <h2 className="text-lg font-extrabold text-[#1A1817]">No confirmed events found</h2>
+                <p className="mt-1 text-sm text-[#7C7671]">
+                  Confirm a payment request to move it into this event schedule.
+                </p>
+              </div>
+            ) : (
+              searchedEvents.map((event) => <EventCard key={event.id} event={event} />)
+            )}
+          </section>
+        ) : (
+          <AdminPanel className="mt-6">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">
+                  Calendar
+                </p>
+                <h2 className="text-xl font-extrabold text-[#1A1817]">{monthLabel(calendarMonth)}</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCalendarMonth(
+                      (current) => new Date(current.getFullYear(), current.getMonth() - 1, 1)
+                    )
+                  }
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#E0DDD5] bg-white text-[#7C7671] transition hover:border-[#2A6558] hover:text-[#2A6558]"
+                  title="Previous month"
                 >
-                  {event.status}
-                </span>
-                <span className="rounded-full border border-[#E0DDD5] bg-[#FCFBF8] px-2.5 py-0.5 text-[11px] font-semibold text-[#7C7671]">
-                  {event.occasion}
-                </span>
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    setCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+                  }}
+                  className="h-9 rounded-xl border border-[#E0DDD5] bg-white px-3 text-xs font-semibold text-[#7C7671] transition hover:border-[#2A6558] hover:text-[#2A6558]"
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCalendarMonth(
+                      (current) => new Date(current.getFullYear(), current.getMonth() + 1, 1)
+                    )
+                  }
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#E0DDD5] bg-white text-[#7C7671] transition hover:border-[#2A6558] hover:text-[#2A6558]"
+                  title="Next month"
+                >
+                  <ChevronRight size={16} />
+                </button>
               </div>
-              <p className="truncate text-base font-extrabold text-[#1A1817] group-hover:text-[#2A6558]">
-                {event.eventName}
-              </p>
-              <p className="mt-0.5 truncate text-xs text-[#7C7671]">
-                {event.creatorFullName ?? "Unknown user"} &middot; {formatAdminDate(event.eventDate)}
-              </p>
-              <div className="mt-3 flex items-center justify-between">
-                <span className="rounded-xl bg-[#1A1817] px-3 py-1.5 text-xs font-bold text-white">
-                  {formatAdminEventBudget(event)}
-                </span>
-                <span className="flex items-center gap-1 text-xs text-[#7C7671]">
-                  <Users size={12} />
-                  {formatAdminCompactNumber(event.pax)}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
+            </div>
 
-        {/* Event detail + edit modal */}
-        {selectedEvent && (() => {
-          const draft = getEventDraft(selectedEvent.id);
-          const isBusy = savingEventId === selectedEvent.id || deletingEventId === selectedEvent.id;
-          return (
-            <div
-              className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
-              onClick={(e) => { if (e.target === e.currentTarget) setSelectedEventId(null); }}
-            >
-              <div className="relative flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
-                {/* Header */}
-                <div className="flex items-start justify-between gap-4 border-b border-[#E0DDD5] bg-[#FCFBF8] px-6 py-5">
-                  <div className="min-w-0">
-                    <div className="mb-2 flex flex-wrap gap-1.5">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                          selectedEvent.status === "Confirmed"
-                            ? "border border-[#C8E0DA] bg-[#EAF2F0] text-[#2A6558]"
-                            : selectedEvent.status === "In Review"
-                            ? "border border-[#FDE8BB] bg-[#FEF6E4] text-[#92600A]"
-                            : "border border-[#E0DDD5] bg-white text-[#7C7671]"
+            <div className="overflow-x-auto">
+              <div className="min-w-[780px]">
+                <div className="grid grid-cols-7 gap-2 pb-2 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-[#7C7671]">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <div key={day}>{day}</div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-2">
+                  {calendarCells.map((day) => {
+                    const key = dateKey(day);
+                    const dayEvents = (eventsByDate[key] ?? []).filter((event) =>
+                      searchedEvents.some((searched) => searched.id === event.id)
+                    );
+                    const inMonth = day.getMonth() === calendarMonth.getMonth();
+                    const isToday = key === today;
+
+                    return (
+                      <div
+                        key={key}
+                        className={`min-h-32 rounded-xl border p-2 ${
+                          isToday
+                            ? "border-[#2A6558] bg-[#EAF2F0]"
+                            : inMonth
+                              ? "border-[#E0DDD5] bg-white"
+                              : "border-[#F0EEEA] bg-[#FCFBF8] text-[#B0ABA5]"
                         }`}
                       >
-                        {selectedEvent.status}
-                      </span>
-                      <span className="rounded-full border border-[#E0DDD5] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#7C7671]">
-                        {selectedEvent.occasion}
-                      </span>
-                    </div>
-                    <h2 className="text-xl font-extrabold text-[#1A1817]">{selectedEvent.eventName}</h2>
-                    <p className="mt-0.5 text-xs text-[#7C7671]">
-                      {selectedEvent.creatorFullName ?? "Unknown user"} &middot; Created {formatAdminDateTime(selectedEvent.createdAt)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedEventId(null)}
-                    className="shrink-0 rounded-xl border border-[#E0DDD5] bg-white p-2 text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817]"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                <div className="overflow-y-auto p-6">
-                  {/* Read-only detail */}
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <DetailBlock title="Brief">
-                      <DetailRow label="Description" value={selectedEvent.description || "None"} />
-                      <DetailRow label="Tone" value={selectedEvent.toneKeywords || "None"} />
-                      <DetailRow label="Notes" value={selectedEvent.extraNotes || "None"} />
-                      <DetailRow label="Amenities" value={selectedEvent.amenities.length ? selectedEvent.amenities.join(", ") : "None"} />
-                      <DetailRow label="Catering" value={selectedEvent.catering} />
-                    </DetailBlock>
-                    <DetailBlock title="Location & schedule">
-                      <DetailRow label="Location" value={`${selectedEvent.city}${selectedEvent.area ? `, ${selectedEvent.area}` : ""}`} />
-                      <DetailRow label="Radius" value={`${selectedEvent.radiusKm} km`} />
-                      <DetailRow label="Setting" value={selectedEvent.setting} />
-                      <DetailRow label="Date" value={formatAdminDate(selectedEvent.eventDate)} />
-                      <DetailRow label="Start" value={formatAdminTime(selectedEvent.startTime)} />
-                      <DetailRow label="Duration" value={`${selectedEvent.durationHours} hours`} />
-                    </DetailBlock>
-                    <DetailBlock title="Recommendation state">
-                      <DetailRow label="Matched venues" value={String(selectedEvent.venueCount)} />
-                      <DetailRow label="Top match" value={selectedEvent.topVenueName ?? "None yet"} />
-                      <DetailRow label="Updated" value={formatAdminDateTime(selectedEvent.updatedAt)} />
-                    </DetailBlock>
-                  </div>
-
-                  {/* Editable fields */}
-                  <div className="mt-5 rounded-[24px] border border-[#C8E0DA] bg-[#F8FBFA] p-5">
-                    <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">Edit details</p>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <label>
-                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Status</span>
-                        <select
-                          value={draft.status}
-                          disabled={isBusy}
-                          onChange={(e) => patchDraft(selectedEvent.id, { status: e.target.value as AdminEventStatus })}
-                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
-                        >
-                          {eventStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </label>
-
-                      <label>
-                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Occasion</span>
-                        <select
-                          value={draft.occasion}
-                          disabled={isBusy}
-                          onChange={(e) => patchDraft(selectedEvent.id, { occasion: e.target.value })}
-                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
-                        >
-                          {OCCASIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      </label>
-
-                      <label>
-                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Event date</span>
-                        <input
-                          type="date"
-                          value={draft.eventDate}
-                          disabled={isBusy}
-                          onChange={(e) => patchDraft(selectedEvent.id, { eventDate: e.target.value })}
-                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
-                        />
-                      </label>
-
-                      <label>
-                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Start time</span>
-                        <input
-                          type="time"
-                          value={draft.startTime}
-                          disabled={isBusy}
-                          onChange={(e) => patchDraft(selectedEvent.id, { startTime: e.target.value })}
-                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
-                        />
-                      </label>
-
-                      <label>
-                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Duration (hours)</span>
-                        <select
-                          value={draft.durationHours}
-                          disabled={isBusy}
-                          onChange={(e) => patchDraft(selectedEvent.id, { durationHours: e.target.value })}
-                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm font-semibold text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
-                        >
-                          {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d} {d === "1" ? "hour" : "hours"}</option>)}
-                        </select>
-                      </label>
-
-                      <label>
-                        <span className="mb-1.5 block text-xs font-semibold text-[#1A1817]">Guest count (pax)</span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={draft.pax}
-                          disabled={isBusy}
-                          onChange={(e) => patchDraft(selectedEvent.id, { pax: e.target.value })}
-                          className="h-10 w-full rounded-xl border border-[#E0DDD5] bg-white px-3 text-sm text-[#1A1817] outline-none transition focus:border-[#2A6558] disabled:opacity-60"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleSaveEventDetails(selectedEvent.id, selectedEvent.eventName)}
-                        disabled={isBusy}
-                        className="inline-flex items-center gap-2 rounded-xl bg-[#2A6558] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#215249] disabled:opacity-60"
-                      >
-                        {savingEventId === selectedEvent.id ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                        Save changes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteEvent(selectedEvent.id, selectedEvent.eventName)}
-                        disabled={isBusy}
-                        className="inline-flex items-center gap-2 rounded-xl border border-[#F2C6BE] bg-[#FDECEA] px-4 py-2 text-sm font-semibold text-[#B42318] transition hover:border-[#B42318] disabled:opacity-60"
-                      >
-                        {deletingEventId === selectedEvent.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                        Delete event
-                      </button>
-                    </div>
-                  </div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-bold">{day.getDate()}</span>
+                          {dayEvents.length > 0 && (
+                            <span className="rounded-full bg-[#2A6558] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                              {dayEvents.length}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          {dayEvents.slice(0, 3).map((event) => (
+                            <div
+                              key={event.id}
+                              className="rounded-lg border border-[#C8E0DA] bg-[#F8FBFA] px-2 py-1"
+                            >
+                              <p className="truncate text-[11px] font-bold text-[#1A1817]">
+                                {event.eventName}
+                              </p>
+                              <p className="truncate text-[10px] text-[#7C7671]">
+                                {formatAdminTime(event.startTime)} - {event.venueName}
+                              </p>
+                            </div>
+                          ))}
+                          {dayEvents.length > 3 && (
+                            <p className="text-[10px] font-semibold text-[#2A6558]">
+                              +{dayEvents.length - 3} more
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
-          );
-        })()}
+          </AdminPanel>
+        )}
       </main>
     </AdminShell>
-  );
-}
-
-function DetailBlock({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-[24px] border border-[#E0DDD5] bg-[#FCFBF8] p-4">
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A6558]">
-        {title}
-      </p>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="grid gap-1 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
-      <span className="text-xs font-semibold text-[#7C7671]">{label}</span>
-      <span
-        className={`min-w-0 break-words font-medium text-[#1A1817] ${
-          mono ? "font-mono text-xs" : ""
-        }`}
-      >
-        {value}
-      </span>
-    </div>
   );
 }

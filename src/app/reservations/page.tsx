@@ -70,10 +70,12 @@ function formatTime(t: string): string {
 
 // ─── Status badge ────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: VenueReservation["reservationStatus"] }) {
+function StatusBadge({ reservation }: { reservation: VenueReservation }) {
+  const status = reservation.reservationStatus;
+  const hasSubmittedPayment = Boolean(reservation.paymentReference);
   const map = {
     pending_payment: {
-      label: "Awaiting Payment",
+      label: hasSubmittedPayment ? "Admin Review" : "Awaiting Payment",
       class: "bg-amber-50 text-amber-700 border-amber-200",
       icon: <AlertCircle size={12} />,
     },
@@ -159,7 +161,7 @@ function ReservationCard({
               {reservation.venueType}
             </p>
           </div>
-          <StatusBadge status={reservation.reservationStatus} />
+          <StatusBadge reservation={reservation} />
         </div>
 
         {/* Details grid */}
@@ -213,7 +215,18 @@ function ReservationCard({
         </div>
 
         {/* Expiry warning */}
-        {reservation.reservationStatus === "pending_payment" && !isExpired && reservation.expiresAt && (
+        {reservation.reservationStatus === "pending_payment" &&
+          !isExpired &&
+          reservation.paymentReference && (
+            <p className="mb-3 rounded-lg border border-[#C8E0DA] bg-[#EAF2F0] px-3 py-1.5 text-[11px] text-[#2A6558]">
+              Payment reference <strong>{reservation.paymentReference}</strong> is waiting for admin review.
+            </p>
+          )}
+
+        {reservation.reservationStatus === "pending_payment" &&
+          !isExpired &&
+          !reservation.paymentReference &&
+          reservation.expiresAt && (
           <p className="mb-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
             Payment slot expires{" "}
             <strong>{formatDateTime(reservation.expiresAt)}</strong>. Complete payment to confirm your booking.
@@ -409,7 +422,7 @@ export default function ReservationsPage() {
            guest_count, price_per_head, total_amount,
            contact_name, contact_phone, special_requests,
            payment_method, payment_status, gcash_number,
-           payment_reference, reservation_status,
+           payment_reference, payment_proof_url, admin_payment_type, reservation_status,
            reference_number, expires_at,
            venues ( name, address, image_color, type )`
         )
@@ -477,49 +490,6 @@ export default function ReservationsPage() {
     );
     return eventDate >= startOfToday && reservation.reservationStatus !== "cancelled";
   }).length;
-  const activeReservations = reservations.filter(
-    (reservation) => reservation.reservationStatus !== "cancelled"
-  );
-  const confirmedReservations = reservations.filter(
-    (reservation) => reservation.reservationStatus === "confirmed"
-  );
-  const pendingReservations = reservations.filter(
-    (reservation) => reservation.reservationStatus === "pending_payment"
-  );
-  const confirmedValue = confirmedReservations.reduce(
-    (sum, reservation) => sum + reservation.totalAmount,
-    0
-  );
-  const pendingValue = pendingReservations.reduce(
-    (sum, reservation) => sum + reservation.totalAmount,
-    0
-  );
-  const nextReservation = [...activeReservations]
-    .sort(
-      (left, right) =>
-        new Date(`${left.eventDate}T00:00:00`).getTime() -
-        new Date(`${right.eventDate}T00:00:00`).getTime()
-    )[0];
-  const nextReservationDaysAway = nextReservation
-    ? Math.round(
-        (new Date(`${nextReservation.eventDate}T00:00:00`).getTime() -
-          new Date(new Date().setHours(0, 0, 0, 0)).getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
-    : null;
-  const paymentWatch = [...pendingReservations]
-    .sort((left, right) => {
-      const leftTime = left.expiresAt
-        ? new Date(left.expiresAt).getTime()
-        : new Date(left.createdAt).getTime();
-      const rightTime = right.expiresAt
-        ? new Date(right.expiresAt).getTime()
-        : new Date(right.createdAt).getTime();
-      return leftTime - rightTime;
-    })
-    .slice(0, 3);
-  const recentReservations = reservations.slice(0, 3);
-
   return (
     <AppShell>
       <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">

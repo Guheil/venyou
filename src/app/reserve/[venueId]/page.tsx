@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { supabase } from "@/lib/supabase/client";
 import { ROUTES } from "@/lib/routes";
@@ -26,7 +26,6 @@ import {
   Copy,
   Check,
   CalendarCheck,
-  DollarSign,
   Upload,
 } from "lucide-react";
 
@@ -98,7 +97,7 @@ function timeLabel(t: string): string {
 // ─────────────────────────────────────────────────────────────
 // Step indicator
 // ─────────────────────────────────────────────────────────────
-const STEPS = ["Your Details", "Payment", "Confirmed!"];
+const STEPS = ["Your Details", "Payment", "Admin Review"];
 
 function StepBar({ current }: { current: number }) {
   return (
@@ -283,8 +282,6 @@ function PayMethodCard({
 export default function ReserveVenuePage() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const router = useRouter();
-
   const rawId = params.venueId;
   const venueId = typeof rawId === "string" ? rawId : Array.isArray(rawId) ? rawId[0] : "";
 
@@ -328,7 +325,6 @@ export default function ReserveVenuePage() {
   // ── Active reservation check (one reservation per event) ──
   const [hasActiveReservation, setHasActiveReservation] = useState(false);
   const [activeReservationVenue, setActiveReservationVenue] = useState<string | null>(null);
-  const [checkingActiveRes, setCheckingActiveRes] = useState(!!eventId);
 
   // ── GCash proof of payment ──
   const [proofImage, setProofImage] = useState<string | null>(null);
@@ -391,9 +387,8 @@ export default function ReserveVenuePage() {
 
   // Check if user already has an active reservation for this event
   useEffect(() => {
-    if (!eventId) { setHasActiveReservation(false); setCheckingActiveRes(false); return; }
+    if (!eventId) { setHasActiveReservation(false); return; }
     let active = true;
-    setCheckingActiveRes(true);
     void (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !active) return;
@@ -416,7 +411,6 @@ export default function ReserveVenuePage() {
         setHasActiveReservation(false);
         setActiveReservationVenue(null);
       }
-      setCheckingActiveRes(false);
     })();
     return () => { active = false; };
   }, [eventId]);
@@ -592,16 +586,12 @@ export default function ReserveVenuePage() {
         <div className="mb-8">
           <h1 className="text-2xl font-extrabold tracking-tight text-[#1A1817]">
             {step === 3
-              ? paymentMethod === "gcash"
-                ? "Booking Confirmed \uD83C\uDF89"
-                : "Venue Slot Reserved \uD83D\uDCC5"
+              ? "Payment Submitted for Review"
               : "Reserve a Venue"}
           </h1>
           <p className="mt-1 text-sm text-[#7C7671]">
             {step === 3
-              ? paymentMethod === "gcash"
-                ? "Your GCash payment was received and your venue is fully confirmed."
-                : "Your slot is held. Bring the full cash amount on your event day to complete the booking."
+              ? "An admin will verify your payment details before the venue is marked as reserved."
               : "Fill in your details below and complete payment to lock in your spot."}
           </p>
         </div>
@@ -806,9 +796,10 @@ export default function ReserveVenuePage() {
                 >
                   <Input
                     type="tel"
+                    inputMode="numeric"
                     placeholder="09XX-XXX-XXXX"
                     value={contactPhone}
-                    onChange={(e) => setContactPhone(e.target.value)}
+                    onChange={(e) => setContactPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
                   />
                 </Field>
               </Section>
@@ -850,7 +841,7 @@ export default function ReserveVenuePage() {
               {/* Payment method */}
               <Section title="How would you like to pay?">
                 <p className="text-sm text-[#7C7671] -mt-2">
-                  Your booking slot is held for <strong className="text-[#1A1817]">30 minutes</strong>. Complete payment before then to keep your reservation.
+                  Submit your payment details now. Your request goes to the admin desk first, then becomes a reserved event after payment is confirmed.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <PayMethodCard
@@ -858,16 +849,16 @@ export default function ReserveVenuePage() {
                     onClick={() => setPaymentMethod("cash")}
                     icon={<Banknote size={22} className="text-[#2A6558]" />}
                     title="Pay with Cash"
-                    desc="No payment now. Just bring the full amount on the day of your event."
-                    badge="No online payment"
+                    desc="Use a cash reference for admin verification after payment is received."
+                    badge="Manual check"
                   />
                   <PayMethodCard
                     selected={paymentMethod === "gcash"}
                     onClick={() => setPaymentMethod("gcash")}
                     icon={<Smartphone size={22} className="text-blue-500" />}
                     title="Pay via GCash"
-                    desc="Pay right now using your GCash mobile wallet. Instant confirmation."
-                    badge="Instant"
+                    desc="Upload your receipt screenshot so an admin can verify the payment."
+                    badge="Proof required"
                   />
                 </div>
 
@@ -896,7 +887,7 @@ export default function ReserveVenuePage() {
                         <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside leading-relaxed">
                           <li>Open your <strong>GCash app</strong> and send <strong>{formatPeso(totalAmount)}</strong></li>
                           <li>After paying, <strong>take a screenshot</strong> of the GCash payment confirmation/receipt</li>
-                          <li>Upload the screenshot below to complete your booking</li>
+                          <li>Upload the screenshot below to submit your payment for admin review</li>
                         </ol>
                       </div>
 
@@ -964,7 +955,7 @@ export default function ReserveVenuePage() {
                         )}
 
                         <p className="mt-1.5 text-[11px] text-blue-600 leading-relaxed">
-                          Your booking will only be confirmed once you upload a valid receipt screenshot.
+                          Admin will review this screenshot before marking the venue as reserved.
                         </p>
                       </div>
                     </div>
@@ -973,8 +964,8 @@ export default function ReserveVenuePage() {
 
                 {paymentMethod === "cash" && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 leading-relaxed">
-                    <strong>Important:</strong> By clicking &quot;Confirm Reservation&quot; you agree to pay{" "}
-                    <strong>{formatPeso(totalAmount)}</strong> in cash on your event date. Failure to pay on the day may result in cancellation of your booking.
+                    <strong>Important:</strong> The system will create a cash payment reference for admin verification.
+                    The venue becomes reserved only after an admin confirms that the cash payment matches your reference number.
                   </div>
                 )}
               </Section>
@@ -993,13 +984,13 @@ export default function ReserveVenuePage() {
                   <CheckCircle2 size={34} className={paymentMethod === "gcash" ? "text-[#2A6558]" : "text-amber-500"} />
                 </div>
                 <h2 className="text-xl font-extrabold text-[#1A1817]">
-                  {paymentMethod === "gcash" ? "Your venue is confirmed!" : "Your slot is reserved!"}
+                  Payment request submitted
                 </h2>
                 <p className="mt-2 text-sm text-[#7C7671]">
                   <strong className="text-[#1A1817]">{venue.name}</strong>{" "}
                   {paymentMethod === "gcash"
-                    ? <>is fully booked for <strong className="text-[#1A1817]">{formatDate(eventDate)}</strong>. GCash payment confirmed.</>
-                    : <>is held for <strong className="text-[#1A1817]">{formatDate(eventDate)}</strong>. Pay cash on arrival to confirm.</>}
+                    ? <>will be reserved for <strong className="text-[#1A1817]">{formatDate(eventDate)}</strong> after admin verifies your GCash receipt.</>
+                    : <>will be reserved for <strong className="text-[#1A1817]">{formatDate(eventDate)}</strong> after admin verifies your cash reference.</>}
                 </p>
               </div>
 
@@ -1028,8 +1019,8 @@ export default function ReserveVenuePage() {
                 <SummaryRow label="Time" value={`${timeLabel(startTime)} · ${durationHours}h`} />
                 <SummaryRow label="Guests" value={`${guestsNum.toLocaleString()} people`} />
                 <SummaryRow
-                  label="Payment"
-                  value={paymentMethod === "gcash" ? `GCash · ${paymentRef}` : "Cash on event day"}
+                  label="Payment Reference"
+                  value={`${paymentMethod === "gcash" ? "GCash" : "Cash"} - ${paymentRef}`}
                 />
                 <SummaryRow label="Total Amount" value={formatPeso(totalAmount)} bold />
               </Section>
@@ -1042,30 +1033,30 @@ export default function ReserveVenuePage() {
                     <>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">1</span>
-                        Your slot is <strong>tentatively held</strong> under reference <strong>{referenceNumber}</strong>. Status stays <em>pending</em> until you pay on arrival.
+                        A cash payment reference was created: <strong>{paymentRef}</strong>.
                       </li>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">2</span>
-                        On <strong>{formatDate(eventDate)}</strong>, bring <strong>{formatPeso(totalAmount)}</strong> in cash. Hand it to the venue to officially confirm your booking.
+                        Admin will double-check that the paid cash amount matches booking reference <strong>{referenceNumber}</strong>.
                       </li>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">3</span>
-                        Show reference <strong>{referenceNumber}</strong> when you arrive. <strong>No payment = no confirmed booking</strong>, so don&apos;t forget!
+                        Once approved, the venue is reserved and the booking appears in the admin event calendar.
                       </li>
                     </>
                   ) : (
                     <>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">1</span>
-                        GCash payment of <strong>{formatPeso(totalAmount)}</strong> has been <strong>received</strong>. Payment ref: <strong>{paymentRef}</strong>.
+                        GCash payment of <strong>{formatPeso(totalAmount)}</strong> was submitted with payment reference <strong>{paymentRef}</strong>.
                       </li>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">2</span>
-                        Your venue is fully <strong>confirmed</strong>. No further action needed for payment.
+                        Admin will review the uploaded receipt screenshot and payment details.
                       </li>
                       <li className="flex items-start gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EAF2F0] text-xs font-bold text-[#2A6558]">3</span>
-                        On <strong>{formatDate(eventDate)}</strong>, present reference <strong>{referenceNumber}</strong> upon arrival.
+                        Once approved, the venue is reserved and the booking appears in the admin event calendar.
                       </li>
                     </>
                   )}
@@ -1142,9 +1133,9 @@ export default function ReserveVenuePage() {
                   ? "Processing…"
                   : paymentMethod === "gcash"
                   ? proofImage
-                    ? "Confirm & Pay via GCash"
-                    : "Upload receipt to confirm"
-                  : "Confirm Reservation"}
+                    ? "Submit GCash for Review"
+                    : "Upload receipt to continue"
+                  : "Submit Cash for Review"}
                 {!busy && <ArrowRight size={15} />}
               </button>
             </div>

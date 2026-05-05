@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import AdminShell from "@/components/AdminShell";
 import {
   AdminDeniedState,
@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabase/client";
 import { useAdminData } from "@/lib/useAdminData";
 import { useToast } from "@/lib/ToastContext";
 import {
+  AlertTriangle,
   Building2,
   CheckCircle2,
   Loader2,
@@ -25,6 +26,7 @@ import {
   Search,
   Star,
   Store,
+  Trash2,
   UploadCloud,
   Users,
   X,
@@ -80,6 +82,8 @@ export default function AdminVenuesPage() {
   const { success, error: showError } = useToast();
   const [drafts, setDrafts] = useState<Record<string, VenueDraft>>({});
   const [savingVenueId, setSavingVenueId] = useState<string | null>(null);
+  const [deletingVenueId, setDeletingVenueId] = useState<string | null>(null);
+  const [confirmDeleteVenueId, setConfirmDeleteVenueId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [settingFilter, setSettingFilter] = useState<"all" | VenueSetting>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -88,18 +92,33 @@ export default function AdminVenuesPage() {
   const [editImagePreviewUrl, setEditImagePreviewUrl] = useState("");
   const [editImageInputKey, setEditImageInputKey] = useState(0);
 
-  useEffect(() => {
+  const resetEditImage = () => {
     setEditImageFile(null);
     setEditImagePreviewUrl((prev) => {
       if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
       return "";
     });
     setEditImageInputKey((k) => k + 1);
-  }, [selectedVenueId]);
+  };
+
+  const openVenueModal = (venueId: string) => {
+    resetEditImage();
+    setSelectedVenueId(venueId);
+  };
+
+  const closeVenueModal = () => {
+    resetEditImage();
+    setSelectedVenueId(null);
+  };
 
   const selectedVenue = useMemo(
     () => venues.find((v) => v.id === selectedVenueId) ?? null,
     [venues, selectedVenueId]
+  );
+
+  const confirmDeleteVenue = useMemo(
+    () => venues.find((v) => v.id === confirmDeleteVenueId) ?? null,
+    [confirmDeleteVenueId, venues]
   );
 
   const filteredVenues = useMemo(() => {
@@ -233,6 +252,29 @@ export default function AdminVenuesPage() {
     }
 
     success("Venue updated", `${venueName} is up to date.`);
+    refreshData();
+  };
+
+  const handleDeleteVenue = async (venueId: string, venueName: string) => {
+    setDeletingVenueId(venueId);
+
+    const { error } = await supabase.from("venues").delete().eq("id", venueId);
+
+    setDeletingVenueId(null);
+
+    if (error) {
+      showError("Could not delete venue", error.message || "Please check your admin access.");
+      return;
+    }
+
+    success("Venue deleted", `${venueName} was removed from the catalog.`);
+    setConfirmDeleteVenueId(null);
+    closeVenueModal();
+    setDrafts((prev) => {
+      const next = { ...prev };
+      delete next[venueId];
+      return next;
+    });
     refreshData();
   };
 
@@ -375,7 +417,7 @@ export default function AdminVenuesPage() {
               <button
                 key={venue.id}
                 type="button"
-                onClick={() => setSelectedVenueId(venue.id)}
+                onClick={() => openVenueModal(venue.id)}
                 className="group overflow-hidden rounded-[24px] border border-[#E0DDD5] bg-white text-left shadow-sm transition hover:border-[#2A6558] hover:shadow-md"
               >
                 <div className="relative h-36 overflow-hidden rounded-t-[24px]">
@@ -448,7 +490,7 @@ export default function AdminVenuesPage() {
         return (
           <div
             className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-8"
-            onClick={() => setSelectedVenueId(null)}
+            onClick={closeVenueModal}
           >
             <div
               className="w-full max-w-3xl rounded-[28px] bg-white shadow-2xl"
@@ -495,7 +537,7 @@ export default function AdminVenuesPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedVenueId(null)}
+                    onClick={closeVenueModal}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#E0DDD5] text-[#7C7671] hover:border-[#1A1817] hover:text-[#1A1817]"
                   >
                     <X size={16} />
@@ -634,20 +676,95 @@ export default function AdminVenuesPage() {
                       {editImageFile ? `${editImageFile.name} — ${Math.ceil(editImageFile.size / 1024).toLocaleString()} KB` : "JPG, PNG, WebP or GIF, max 5 MB"}
                     </span>
                   </div>
-                  {editImagePreviewUrl && (
-                    <div className="mt-3 h-28 overflow-hidden rounded-xl">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={editImagePreviewUrl} alt="New photo preview" className="h-full w-full object-cover" />
-                    </div>
-                  )}
-                </div>
+                {editImagePreviewUrl && (
+                  <div className="mt-3 h-28 overflow-hidden rounded-xl">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={editImagePreviewUrl} alt="New photo preview" className="h-full w-full object-cover" />
+                  </div>
+                )}
+              </div>
 
+                <div className="mt-4 rounded-[24px] border border-[#F2C5BE] bg-[#FDECEA] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-extrabold text-[#B42318]">Delete venue</p>
+                      <p className="mt-1 text-xs leading-relaxed text-[#8A3A32]">
+                        Permanently remove this venue from the catalog. Use inactive status instead when you only need to hide it from recommendations.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteVenueId(selectedVenue.id)}
+                      className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#B42318] bg-white px-4 text-sm font-semibold text-[#B42318] transition hover:bg-[#B42318] hover:text-white"
+                    >
+                      <Trash2 size={15} />
+                      Delete venue
+                    </button>
+                  </div>
+                </div>
 
               </div>
             </div>
           </div>
         );
       })()}
+
+      {confirmDeleteVenue && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setConfirmDeleteVenueId(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border border-[#F2C5BE] bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#FDECEA] text-[#B42318]">
+                <AlertTriangle size={22} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#B42318]">
+                  Confirm deletion
+                </p>
+                <h2 className="mt-2 text-xl font-extrabold tracking-tight text-[#1A1817]">
+                  Delete {confirmDeleteVenue.name}?
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-[#6B6661]">
+                  This permanently removes the venue from the catalog. If this venue has linked reservation records, the database relationship may also remove those linked records.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[#F2C5BE] bg-[#FDECEA] p-3 text-xs leading-relaxed text-[#8A3A32]">
+              Deactivate the venue instead if you only want to hide it from customer recommendations.
+            </div>
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteVenueId(null)}
+                disabled={deletingVenueId === confirmDeleteVenue.id}
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-[#E0DDD5] bg-white px-4 text-sm font-semibold text-[#1A1817] transition hover:border-[#2A6558] disabled:opacity-60"
+              >
+                Keep venue
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteVenue(confirmDeleteVenue.id, confirmDeleteVenue.name)}
+                disabled={deletingVenueId === confirmDeleteVenue.id}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#B42318] px-4 text-sm font-semibold text-white transition hover:bg-[#8F1C13] disabled:opacity-60"
+              >
+                {deletingVenueId === confirmDeleteVenue.id ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Trash2 size={15} />
+                )}
+                Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminShell>
   );
 }

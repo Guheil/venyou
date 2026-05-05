@@ -97,6 +97,8 @@ export interface VenueReservation {
   paymentStatus: PaymentStatus;
   gcashNumber: string | null;
   paymentReference: string | null;
+  paymentProofUrl: string | null;
+  adminPaymentType: "online" | "face_to_face" | null;
 
   // Status
   reservationStatus: ReservationStatus;
@@ -131,6 +133,8 @@ export interface VenueReservationRow {
   payment_status: PaymentStatus;
   gcash_number: string | null;
   payment_reference: string | null;
+  payment_proof_url: string | null;
+  admin_payment_type: "online" | "face_to_face" | null;
   reservation_status: ReservationStatus;
   reference_number: string;
   expires_at: string | null;
@@ -170,6 +174,8 @@ export function mapReservationRow(row: VenueReservationRow): VenueReservation {
     paymentStatus: row.payment_status,
     gcashNumber: row.gcash_number,
     paymentReference: row.payment_reference,
+    paymentProofUrl: row.payment_proof_url,
+    adminPaymentType: row.admin_payment_type,
     reservationStatus: row.reservation_status,
     referenceNumber: row.reference_number,
     expiresAt: row.expires_at,

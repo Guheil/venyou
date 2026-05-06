@@ -88,6 +88,7 @@ export default function AdminRequestsPage() {
   const [proofModal, setProofModal] = useState<string | null>(null);
   const [cashReferenceChecks, setCashReferenceChecks] = useState<Record<string, boolean>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -110,6 +111,16 @@ export default function AdminRequestsPage() {
     () => reservations.find((r) => r.id === selectedId) ?? null,
     [reservations, selectedId]
   );
+
+  const closeRequestModal = () => {
+    setSelectedId(null);
+    setCancelConfirmId(null);
+  };
+
+  const openRequestModal = (reservationId: string) => {
+    setCancelConfirmId(null);
+    setSelectedId(reservationId);
+  };
 
   const counts = {
     all: reservations.length,
@@ -181,7 +192,7 @@ export default function AdminRequestsPage() {
     setPaymentRefs((prev) => ({ ...prev, [reservationId]: "" }));
     setAdminNotes((prev) => ({ ...prev, [reservationId]: "" }));
     setCashReferenceChecks((prev) => { const next = { ...prev }; delete next[reservationId]; return next; });
-    setSelectedId(null);
+    closeRequestModal();
     refreshData();
   };
 
@@ -202,7 +213,7 @@ export default function AdminRequestsPage() {
 
     success("Request cancelled", `${referenceNumber} was cancelled.`);
     setAdminNotes((prev) => ({ ...prev, [reservationId]: "" }));
-    setSelectedId(null);
+    closeRequestModal();
     refreshData();
   };
 
@@ -347,7 +358,7 @@ export default function AdminRequestsPage() {
                 <button
                   key={reservation.id}
                   type="button"
-                  onClick={() => setSelectedId(reservation.id)}
+                  onClick={() => openRequestModal(reservation.id)}
                   className="group text-left overflow-hidden rounded-[24px] border border-[#E0DDD5] bg-white shadow-sm transition hover:border-[#2A6558] hover:shadow-md"
                 >
                   <div
@@ -423,7 +434,7 @@ export default function AdminRequestsPage() {
           return (
             <div
               className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-6"
-              onClick={() => setSelectedId(null)}
+              onClick={closeRequestModal}
             >
               <div
                 className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl sm:rounded-[28px]"
@@ -484,7 +495,7 @@ export default function AdminRequestsPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setSelectedId(null)}
+                        onClick={closeRequestModal}
                         className="inline-flex h-10 items-center justify-center rounded-xl border border-[#E0DDD5] bg-white px-4 text-sm font-semibold text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817]"
                       >
                         Close
@@ -733,47 +744,108 @@ export default function AdminRequestsPage() {
                               )}
                               Confirm
                             </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleCancelReservation(
-                                  selectedReservation.id,
-                                  selectedReservation.referenceNumber
-                                )
-                              }
-                              disabled={submittingAction === `cancel-${selectedReservation.id}`}
-                              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
-                            >
-                              {submittingAction === `cancel-${selectedReservation.id}` ? (
-                                <Loader2 size={15} className="animate-spin" />
-                              ) : (
+                            {cancelConfirmId !== selectedReservation.id && (
+                              <button
+                                type="button"
+                                onClick={() => setCancelConfirmId(selectedReservation.id)}
+                                disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
+                              >
                                 <XCircle size={15} />
-                              )}
-                              Cancel
-                            </button>
+                                Cancel request
+                              </button>
+                            )}
                           </div>
+                          {cancelConfirmId === selectedReservation.id && (
+                            <div className="mt-3 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] p-3">
+                              <p className="text-xs font-semibold text-[#C0392B]">
+                                Cancel this payment request?
+                              </p>
+                              <p className="mt-1 text-xs leading-relaxed text-[#7C7671]">
+                                This marks the request as cancelled and removes it from the active queue.
+                              </p>
+                              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setCancelConfirmId(null)}
+                                  disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                                  className="inline-flex h-10 items-center justify-center rounded-xl border border-[#E0DDD5] bg-white px-3 text-xs font-semibold text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817] disabled:opacity-60"
+                                >
+                                  Keep request
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleCancelReservation(
+                                      selectedReservation.id,
+                                      selectedReservation.referenceNumber
+                                    )
+                                  }
+                                  disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#C0392B] px-3 text-xs font-semibold text-white transition hover:bg-[#A93226] disabled:opacity-60"
+                                >
+                                  {submittingAction === `cancel-${selectedReservation.id}` ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <XCircle size={14} />
+                                  )}
+                                  Yes, cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </InfoSection>
                       )}
 
                       {selectedReservation.reservationStatus === "confirmed" && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleCancelReservation(
-                              selectedReservation.id,
-                              selectedReservation.referenceNumber
-                            )
-                          }
-                          disabled={submittingAction === `cancel-${selectedReservation.id}`}
-                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
-                        >
-                          {submittingAction === `cancel-${selectedReservation.id}` ? (
-                            <Loader2 size={15} className="animate-spin" />
-                          ) : (
+                        cancelConfirmId === selectedReservation.id ? (
+                          <div className="rounded-xl border border-[#F2C5BE] bg-[#FDECEA] p-3">
+                            <p className="text-xs font-semibold text-[#C0392B]">
+                              Cancel this confirmed reservation?
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed text-[#7C7671]">
+                              This removes the reservation from the active event schedule.
+                            </p>
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              <button
+                                type="button"
+                                onClick={() => setCancelConfirmId(null)}
+                                disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                                className="inline-flex h-10 items-center justify-center rounded-xl border border-[#E0DDD5] bg-white px-3 text-xs font-semibold text-[#7C7671] transition hover:border-[#1A1817] hover:text-[#1A1817] disabled:opacity-60"
+                              >
+                                Keep reservation
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleCancelReservation(
+                                    selectedReservation.id,
+                                    selectedReservation.referenceNumber
+                                  )
+                                }
+                                disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#C0392B] px-3 text-xs font-semibold text-white transition hover:bg-[#A93226] disabled:opacity-60"
+                              >
+                                {submittingAction === `cancel-${selectedReservation.id}` ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <XCircle size={14} />
+                                )}
+                                Yes, cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setCancelConfirmId(selectedReservation.id)}
+                            disabled={submittingAction === `cancel-${selectedReservation.id}`}
+                            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#F2C5BE] bg-[#FDECEA] px-4 text-sm font-semibold text-[#C0392B] transition hover:border-[#C0392B] disabled:opacity-60"
+                          >
                             <XCircle size={15} />
-                          )}
-                          Cancel reservation
-                        </button>
+                            Cancel reservation
+                          </button>
+                        )
                       )}
                     </aside>
                   </div>

@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Sorry, this venue has already been reserved for that date by another booking. Please choose a different date.",
+          "This time slot overlaps with an existing reservation for that venue. Please choose a different start time or duration.",
         conflict: true,
       },
       { status: 409 }

@@ -338,8 +338,8 @@ export default function ReserveVenuePage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [gcashNumber, setGcashNumber] = useState("");
 
-  // ── Date availability (universal — blocks if anyone has this date) ──
-  const [dateConflict, setDateConflict] = useState(false);
+  // ── Time-slot availability (blocks only if times overlap) ──
+  const [timeConflict, setTimeConflict] = useState(false);
   const [checkingDate, setCheckingDate] = useState(false);
 
   // ── Active reservation check (one reservation per event) ──
@@ -388,25 +388,42 @@ export default function ReserveVenuePage() {
     return () => { active = false; };
   }, [venueId]);
 
-  // Check date availability (universal — across all users)
+  // Check time-slot availability (venue + date + time overlap across all users)
   useEffect(() => {
-    if (!venueId || !eventDate) { setDateConflict(false); return; }
+    if (!venueId || !eventDate) { setTimeConflict(false); return; }
     let active = true;
     setCheckingDate(true);
     void (async () => {
+      const now = new Date().toISOString();
       const { data } = await supabase
         .from("venue_reservations")
-        .select("id")
+        .select("start_time, duration_hours")
         .eq("venue_id", venueId)
         .eq("event_date", eventDate)
         .neq("reservation_status", "cancelled")
-        .limit(1);
+        .or(`expires_at.is.null,expires_at.gt.${now}`);
       if (!active) return;
-      setDateConflict((data ?? []).length > 0);
+      if (!data || data.length === 0) {
+        setTimeConflict(false);
+        setCheckingDate(false);
+        return;
+      }
+      // Convert selected time to minutes-from-midnight for arithmetic
+      const [sh, sm] = startTime.split(":").map(Number);
+      const newStart = sh * 60 + (sm || 0);
+      const newEnd = newStart + durationHours * 60;
+      const hasOverlap = data.some((r) => {
+        const [eh, em] = (r.start_time as string).split(":").map(Number);
+        const existStart = eh * 60 + (em || 0);
+        const existEnd = existStart + (r.duration_hours as number) * 60;
+        // Overlap: new starts before existing ends AND new ends after existing starts
+        return newStart < existEnd && newEnd > existStart;
+      });
+      setTimeConflict(hasOverlap);
       setCheckingDate(false);
     })();
     return () => { active = false; };
-  }, [venueId, eventDate]);
+  }, [venueId, eventDate, startTime, durationHours]);
 
   // Check if user already has an active reservation for this event
   useEffect(() => {
@@ -444,7 +461,7 @@ export default function ReserveVenuePage() {
 
     if (!eventDate) { setFieldError("Please pick the date of your event."); return; }
     if (eventDate < today()) { setFieldError("The event date can't be in the past. Please choose a future date."); return; }
-    if (dateConflict) { setFieldError("This venue is already reserved on this date by another booking. Please choose a different date."); return; }
+    if (timeConflict) { setFieldError("This time slot overlaps with an existing reservation. Please choose a different start time or duration."); return; }
     if (hasActiveReservation) { setFieldError(`You already have an active reservation for this event at ${activeReservationVenue}. Please cancel it first before making a new reservation.`); return; }
     if (!guestCount || isNaN(guestsNum) || guestsNum < 1) {
       setFieldError("Please enter how many guests will be attending."); return;
@@ -737,16 +754,6 @@ export default function ReserveVenuePage() {
                       value={eventDate}
                       onChange={(e) => setEventDate(e.target.value)}
                     />
-                    {checkingDate && eventDate && (
-                      <p className="text-xs text-[#7C7671] flex items-center gap-1 mt-1">
-                        <Loader2 size={11} className="animate-spin" /> Checking availability…
-                      </p>
-                    )}
-                    {dateConflict && !checkingDate && (
-                      <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                        <AlertTriangle size={11} /> This date is already reserved by another booking. Pick a different date.
-                      </p>
-                    )}
                   </Field>
                   <Field label="Start Time" icon={<Clock size={15} />} required>
                     <Select value={startTime} onChange={(e) => setStartTime(e.target.value)}>
@@ -754,6 +761,16 @@ export default function ReserveVenuePage() {
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </Select>
+                    {checkingDate && eventDate && (
+                      <p className="text-xs text-[#7C7671] flex items-center gap-1 mt-1">
+                        <Loader2 size={11} className="animate-spin" /> Checking availability…
+                      </p>
+                    )}
+                    {timeConflict && !checkingDate && (
+                      <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
+                        <AlertTriangle size={11} /> This time slot is already booked. Try a different time or duration.
+                      </p>
+                    )}
                   </Field>
                 </div>
                 <Field
@@ -1186,7 +1203,7 @@ export default function ReserveVenuePage() {
               <button
                 type="button"
                 onClick={handleStep1}
-                disabled={busy || dateConflict || hasActiveReservation}
+                disabled={busy || timeConflict || hasActiveReservation}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2A6558] py-3.5 text-sm font-semibold text-white hover:bg-[#215249] disabled:opacity-60 transition-colors"
               >
                 {busy ? <Loader2 size={15} className="animate-spin" /> : null}
